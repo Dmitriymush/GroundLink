@@ -1,0 +1,29 @@
+[
+  {
+    "label": "Elgato HD60 X",
+    "width": "1920",
+    "height": "1080",
+    "bitrate": 1100,
+    "format": "video/x-h264",
+    "compression": "H.264",
+    "fps": "50"
+  },
+  {
+    "label": "Elgato HD60 X",
+    "width": "1920",
+    "height": "1080",
+    "bitrate": 1100,
+    "format": "video/x-h264",
+    "compression": "H.264",
+    "fps": "50"
+  },
+  {
+    "label": "Elgato HD60 X",
+    "width": "1920",
+    "height": "1080",
+    "bitrate": 1100,
+    "format": "video/x-h264",
+    "compression": "H.264",
+    "fps": "50"
+  }
+]

@@ -1,0 +1,12 @@
+export const ROUTERS = {
+  SETTINGS: "/settings",
+  DETONATE: "/detonate",
+  REMOTE_CONTROLL: "/remote-control",
+  ANTENA_CONTROLL: "/antenna-controll",
+  BEE: "/bee",
+  SECOND_JR_ANTENNA_CONTROLL: "/second-jr-antenna-controll",
+  DRONE_CONTROLL: "/drone-controll",
+  REMOTE_CONTROLL_V2: "/remote-control-v2",
+  CAN_CONTROLL: "/can-controll",
+  VULIK_CONTROLL: "/vulik-controll",
+};

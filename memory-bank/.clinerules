@@ -1,0 +1,188 @@
+# GroundLink Project Intelligence Rules
+
+## Project Patterns
+
+### Code Organization
+1. Components follow atomic design:
+   - atoms: Basic UI elements
+   - molecules: Compound components
+   - pages: Full page components
+
+2. Controller organization:
+   - api/: External service communication
+   - socket/: Real-time communication
+   - hardware/: Device interaction
+
+### Naming Conventions
+- Vue components use PascalCase
+- Controllers use camelCase
+- Constants use UPPER_SNAKE_CASE
+- Types/Interfaces use PascalCase
+
+### File Structure
+- Source code in `src/`
+- Components in `src/components/`
+- API controllers in `src/controllers/api/`
+- Constants in `src/constants/`
+- Types in `src/types/`
+
+## Development Workflows
+
+### TypeScript Guidelines
+1. Always define explicit types for:
+   - Component props
+   - Store state
+   - API responses
+   - Function parameters
+   - Return types
+
+2. Avoid using `any` type:
+   ```typescript
+   // ❌ Don't use
+   const data: any
+   
+   // ✅ Use specific types
+   type VideoData = {
+     width: number
+     height: number
+   }
+   const data: VideoData
+   ```
+
+### Component Development
+1. Props validation required:
+   ```typescript
+   interface Props {
+     settings: VideoSettings
+     onUpdate: (settings: VideoSettings) => void
+   }
+   ```
+
+2. Event handling patterns:
+   - Use `emit` for child-to-parent communication
+   - Use stores for global state
+   - Use composables for shared logic
+
+### API Integration
+1. Base API setup:
+   - Always extend from BaseApi
+   - Define types for requests/responses
+   - Include error handling
+
+2. Error management:
+   - Use typed error responses
+   - Include error context
+   - Handle network failures
+
+## Implementation Guidelines
+
+### Video Handling
+1. Resolution settings:
+   - Max: 1920x1080 @ 20fps
+   - Default: 1280x720 @ 30fps
+   - Min: 640x480 @ 30fps
+
+2. Bitrate ranges:
+   - High: 5000kbps
+   - Medium: 3500kbps
+   - Low: 1000kbps
+
+### Control System
+1. Channel mapping:
+   ```typescript
+   CH1: 'ROLL'    // Required
+   CH2: 'PITCH'   // Required
+   CH3: 'THROTTLE' // Required
+   CH4: 'YAW'     // Required
+   CH5: 'ARM'     // Required
+   CH6: 'MODE'    // Required
+   CH7: '-'       // Optional
+   ```
+
+2. Update frequencies:
+   - Control inputs: 50Hz
+   - Status updates: 10Hz
+   - Video frames: 20-30fps
+
+### Network Configuration
+1. Port usage:
+   - 5400: Video streaming
+   - 14550: Telemetry
+   - 27015: Primary control
+   - 27016: Secondary control
+
+2. VPN requirements:
+   - Wireguard protocol
+   - Unique client configs
+   - Auto-reconnect enabled
+
+## Testing Requirements
+
+### Component Testing
+1. Test coverage requirements:
+   - Critical paths: 100%
+   - Business logic: 80%
+   - UI components: 65%
+
+2. Test types:
+   - Unit tests for business logic
+   - Integration tests for APIs
+   - E2E for critical flows
+
+### Quality Standards
+1. Code quality:
+   - No TypeScript errors
+   - No console warnings
+   - Clean error handling
+
+2. Performance targets:
+   - Control latency < 100ms
+   - Video latency < 200ms
+   - UI updates < 16ms
+
+## Documentation Standards
+
+### Code Documentation
+1. Required JSDoc:
+   - Public functions
+   - Interfaces/Types
+   - Complex algorithms
+   - Configuration objects
+
+2. Comment style:
+   ```typescript
+   /**
+    * @description Brief description
+    * @param {Type} name - Parameter description
+    * @returns {Type} Return description
+    */
+   ```
+
+### Commit Messages
+1. Format:
+   ```
+   type(scope): description
+   
+   - type: feat|fix|docs|style|refactor|test|chore
+   - scope: component|api|video|control|etc
+   - description: clear, concise explanation
+   ```
+
+2. Examples:
+   ```
+   feat(video): add quality adaptation
+   fix(control): resolve input latency
+   docs(api): update endpoint docs
+   ```
+
+## User Preferences
+1. Default settings:
+   - Video quality: 720p
+   - Control sensitivity: medium
+   - Auto-reconnect: enabled
+   - Error logging: verbose
+
+2. Configuration persistence:
+   - Store in local storage
+   - Backup to file system
+   - Restore on launch
