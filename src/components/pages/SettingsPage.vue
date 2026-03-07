@@ -16,6 +16,7 @@ import ConnectionSettings from "@/components/molecules/settings/ConnectionSettin
 import MixerSettings from "../molecules/settings/MixerSettings.vue";
 import MainJrSettings from "../molecules/settings/MainJrSettings.vue";
 import ModemControllSettings from "../molecules/settings/ModemControllSettings.vue";
+import RotatorSettings from "../molecules/settings/RotatorSettings.vue";
 
 const DEFAULT_PORT = 27015;
 const DEFAULT_SECOND_PORT = 27016;
@@ -245,6 +246,8 @@ watch(
           <MixerSettings class="block-card"/>
 
           <MainJrSettings class="block-card"/>
+
+          <RotatorSettings class="block-card"/>
 
           <!-- Save Button Block -->
         </VCol>

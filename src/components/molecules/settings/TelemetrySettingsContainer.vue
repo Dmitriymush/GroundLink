@@ -117,10 +117,13 @@ const isSomethisLoading = computed(() => (
 ))
 
 const isSettingsDirrefend = computed(() => {
-    return !telemerySettings.value.outputs.some(o => o.IPPort.includes(ownIp.value));
+    if (!telemerySettings.value?.outputs) return true;
+    return !telemerySettings.value.outputs.some((o: any) => o.IPPort?.includes(ownIp.value));
 })
 
 const statusColor = computed(() => {
+    if (!telemerySettings.value) return '';
+
     if (telemerySettings.value.telemetryStatus) {
         return 'green'
     }
@@ -133,6 +136,8 @@ const statusColor = computed(() => {
 });
 
 const statusText = computed(() => {
+    if (!telemerySettings.value) return '';
+
     if (telemerySettings.value.telemetryStatus) {
         return t('Telemetry started');
     }

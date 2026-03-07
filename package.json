@@ -26,7 +26,8 @@
     "preview": "vite preview",
     "rebuild": "@electron/rebuild",
     "postinstall": "electron-builder install-app-deps",
-    "migrate-api": "node scripts/migrate-api.js"
+    "migrate-api": "node scripts/migrate-api.js",
+    "rotator-sim": "node scripts/rotator-simulator.js"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.3.0",

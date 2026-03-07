@@ -5,13 +5,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { useT } from "@/hooks/use-t";
 import { type BaseVideoSettings } from "@/constants/video-settings";
 import { useAppSeetingsStore, useConnectionStatus } from "@/store";
+import { sleep } from "@/utils";
 import { VBtn, VSelect, VSwitch } from "vuetify/components";
-import { 
-  useRPanionVideoSettings, 
-  useChangeRPanionVideoSettings, 
+import {
+  useRPanionVideoSettings,
+  useChangeRPanionVideoSettings,
   useRPanionVideoSettingsList,
-  useFixRPanionVideo, 
-  useStopRPanionVideo 
+  useFixRPanionVideo,
+  useStopRPanionVideo,
+  useRPanionConnection
 } from "@/hooks/use-rpanion-api";
 import type { VideoSettings, Dev } from "@/services/api/rpanion-service";
 
