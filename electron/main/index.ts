@@ -107,3 +107,61 @@ ipcMain.handle("open-win", (_, arg) => {
     childWindow.loadFile(indexHtml, { hash: arg });
   }
 });
+
+// Floating antenna control window
+let antennaFloatingWin: BrowserWindow | null = null;
+
+ipcMain.handle("open-antenna-floating", (_, options?: { width?: number; height?: number }) => {
+  // If already open, focus it
+  if (antennaFloatingWin && !antennaFloatingWin.isDestroyed()) {
+    antennaFloatingWin.focus();
+    return;
+  }
+
+  antennaFloatingWin = new BrowserWindow({
+    width: options?.width || 380,
+    height: options?.height || 620,
+    minWidth: 300,
+    minHeight: 400,
+    maxWidth: 600,
+    alwaysOnTop: true,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    skipTaskbar: false,
+    title: "Antenna Control",
+    icon: join(process.env.VITE_PUBLIC, "favicon.ico"),
+    webPreferences: {
+      preload,
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  // Share rotator IPC with floating window
+  setRotatorChildWindow(antennaFloatingWin);
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    antennaFloatingWin.loadURL(`${url}#/antenna-floating`);
+  } else {
+    antennaFloatingWin.loadFile(indexHtml, { hash: "/antenna-floating" });
+  }
+
+  antennaFloatingWin.on("closed", () => {
+    antennaFloatingWin = null;
+  });
+});
+
+ipcMain.handle("set-window-opacity", (event, opacity: number) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow) {
+    senderWindow.setOpacity(Math.max(0.2, Math.min(1, opacity)));
+  }
+});
+
+ipcMain.handle("close-current-window", (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow && senderWindow !== win) {
+    senderWindow.close();
+  }
+});

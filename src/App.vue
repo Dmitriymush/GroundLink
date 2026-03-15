@@ -4,7 +4,8 @@ import TopBar from "./components/molecules/TopBar.vue";
 
 import { socket } from "./controllers/socket";
 import { virtualJR } from "./controllers/virtualJR";
-import { onBeforeMount, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeMount, onBeforeUnmount, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { useStorage } from "@vueuse/core";
 import { checkContent } from "@/utils/installer";
 import { useDroneControll } from "./hooks/drone-controll";
@@ -24,6 +25,8 @@ const isInstalled = ref<boolean>(false);
 const { restoreState } = useDroneControll();
 const { restoreValues } = useMixerStettings();
 const appSettingsStore = useAppSeetingsStore();
+const route = useRoute();
+const isFloatingWindow = computed(() => route.path === '/antenna-floating');
 
 virtualJR.socket?.connect(hostStorage.value, secondPort.value);
 
@@ -68,11 +71,16 @@ onBeforeUnmount(() => {
 
 <template>
   <v-app v-if="isInstalled" full-height>
-    <TopBar />
-    <div class="app">
-      <Menu />
+    <template v-if="isFloatingWindow">
       <router-view></router-view>
-    </div>
+    </template>
+    <template v-else>
+      <TopBar />
+      <div class="app">
+        <Menu />
+        <router-view></router-view>
+      </div>
+    </template>
   </v-app>
 
   <div v-else>...</div>
@@ -94,10 +102,6 @@ onBeforeUnmount(() => {
 
   :deep(.v-list) {
     padding-top: 0;
-  }
-  .app {
-    display: flex;
-    flex-direction: row;
   }
 
   .app .v-container {

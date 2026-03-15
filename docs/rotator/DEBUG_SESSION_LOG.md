@@ -263,20 +263,17 @@ The WIFI232-B2 (from Sessions 1-3) has direct TTL UART pins (TX/RX/GND) — no t
    - GroundLink commands still sent, but NO telemetry received at all
    - Confirms the telemetry source is the Arduino
 
-### Current Baud Rate Status
+### Resolution: Baud Rate Was the Core Issue
 
-The adapter baud rate was changed during debugging. Current value needs verification:
+**The Arduino Pro Micro runs at 9600 baud.** Setting the adapter to 9600 (config value `12`) fixed the garbled telemetry. The direct RS485 A/B → TTL TX/RX connection works at 9600 baud — the slower signal transitions allow the Pro Micro to read the RS485 line voltage as a TTL signal.
+
+**Working adapter baud rate setting:**
 ```bash
-curl -u admin:admin "http://192.168.0.117/EN/app_config.html" 2>/dev/null | grep "uart_baudrate"
+# Set baud to 9600 (value 12):
+curl -u admin:admin -X POST "http://192.168.0.117/EN/do_cmd_fast.html" -d "SET0=285344000=12"
 ```
-To reset to 57600: `curl -u admin:admin -X POST "http://192.168.0.117/EN/do_cmd_fast.html" -d "SET0=285344000=15"`
 
-### Next Steps
-
-1. **Get a MAX485 module** (or MAX3232 for RS232 path) to properly interface the Arduino Pro Micro with the Waveshare adapter
-2. **Determine the Pro Micro's baud rate** — check the sketch for `Serial1.begin(xxxxx)`. Previous sessions used 115200 with the WIFI232-B2
-3. **Match the adapter baud rate** to the Arduino's baud rate
-4. Once hardware is correct, test full E2E: GroundLink ↔ UDP ↔ Waveshare adapter ↔ RS485/RS232 ↔ Arduino
+**Note**: At higher baud rates (57600, 115200) the direct RS485→TTL connection produces garbled data. If the Arduino sketch is ever changed to a higher baud rate, a MAX485 module on the Arduino side may become necessary. At 9600 baud, the direct connection works.
 
 ---
 

@@ -2,8 +2,6 @@
   <svg
     ref="svgRef"
     :viewBox="`0 0 ${size} ${size}`"
-    :width="size"
-    :height="size"
     class="azimuth-compass"
     @mousedown="handleMouseDown"
     @mousemove="handleMouseMove"
@@ -209,5 +207,8 @@ const handleMouseUp = () => {
 .azimuth-compass {
   cursor: crosshair;
   user-select: none;
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 </style>

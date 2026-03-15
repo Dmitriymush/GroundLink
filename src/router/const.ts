@@ -9,4 +9,5 @@ export const ROUTERS = {
   REMOTE_CONTROLL_V2: "/remote-control-v2",
   CAN_CONTROLL: "/can-controll",
   VULIK_CONTROLL: "/vulik-controll",
+  ANTENNA_FLOATING: "/antenna-floating",
 };

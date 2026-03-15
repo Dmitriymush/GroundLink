@@ -79,8 +79,10 @@ const resetToDefaults = () => {
 
 const connectionStatusColor = computed(() => {
   if (!rotatorStore) return 'grey';
+  if (rotatorStore.telemetryConnected) return 'success';
+  if (rotatorStore.telemetryTimedOut) return 'error';
   switch (rotatorStore.connectionState) {
-    case 'connected': return 'success';
+    case 'connected': return 'warning';
     case 'connecting': return 'warning';
     case 'error': return 'error';
     default: return 'grey';
@@ -89,8 +91,10 @@ const connectionStatusColor = computed(() => {
 
 const connectionStatusText = computed(() => {
   if (!rotatorStore) return t('Не завантажено');
+  if (rotatorStore.telemetryConnected) return t('Підключено');
+  if (rotatorStore.telemetryTimedOut) return t('Пристрій не відповідає!');
   switch (rotatorStore.connectionState) {
-    case 'connected': return t('Підключено');
+    case 'connected': return t('Очікування відповіді...');
     case 'connecting': return t('Підключення...');
     case 'error': return t('Помилка');
     default: return t('Відключено');

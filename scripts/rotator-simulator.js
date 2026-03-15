@@ -32,6 +32,7 @@ const dgram = require('dgram');
 
 const args = process.argv.slice(2);
 const SERVER_PORT = parseInt(args.find((_, i, a) => a[i - 1] === '--port') || '24448', 10);
+const BIND_HOST = args.find((_, i, a) => a[i - 1] === '--host') || '0.0.0.0';
 const TELEMETRY_INTERVAL = 500; // Match Pascal: 500ms
 
 // Simulated rotator state
@@ -105,8 +106,7 @@ function parseCommand(data) {
 /**
  * Build telemetry frame matching Pascal protocol
  *
- * Pascal uTelemetry.pas expects:
- *   T:<val>;R:<val>;COM:<degrees>;V:<voltage>;CH:<checksum>;
+ * Format: T:<val>;R:<val>;COM:<degrees>;V:<voltage>;CH:<checksum>;\r\n
  * Where checksum = sT + sR + sCOM + sV (raw string concatenation)
  */
 function buildTelemetry() {
@@ -115,10 +115,8 @@ function buildTelemetry() {
   const com = String(Math.round(state.currentAzimuth));
   const v = state.voltage.toFixed(1);
 
-  // Pascal checksum: raw string concat of T + R + COM + V
   const ch = `${t}${r}${com}${v}`;
 
-  // Semicolon-delimited, CRLF terminated (matches FrameDelimiters = [#10, #13, ';'])
   return `T:${t};R:${r};COM:${com};V:${v};CH:${ch};\r\n`;
 }
 
@@ -168,13 +166,17 @@ server.on('listening', () => {
   console.log(`  UDP: ${address.address}:${address.port}`);
   console.log(`  Telemetry interval: ${TELEMETRY_INTERVAL}ms`);
   console.log(`\n  GroundLink settings:`);
-  console.log(`    Host: 127.0.0.1`);
+  console.log(`    Host: ${BIND_HOST === '0.0.0.0' ? '127.0.0.1' : BIND_HOST}`);
   console.log(`    Port: ${SERVER_PORT}`);
   console.log(`    Local Port: ${SERVER_PORT + 1}`);
+  console.log(`\n  Usage:`);
+  console.log(`    node scripts/rotator-simulator.js                  # binds 0.0.0.0:24448`);
+  console.log(`    node scripts/rotator-simulator.js --port 24448     # custom port`);
+  console.log(`    node scripts/rotator-simulator.js --host 192.168.0.109  # specific interface`);
   console.log(`\n  Waiting for commands...\n`);
 });
 
-server.bind(SERVER_PORT);
+server.bind(SERVER_PORT, BIND_HOST);
 
 // Send telemetry periodically (matches Pascal AutoSendIntervalMs = 500)
 setInterval(() => {

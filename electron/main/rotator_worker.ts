@@ -21,7 +21,7 @@ import {
 interface RotatorWorkerState {
   socket: dgram.Socket | null;
   config: RotatorConfig | null;
-  childWindow: BrowserWindow | null;
+  childWindows: Set<BrowserWindow>;
   started: boolean;
   connected: boolean;
   lastSendTime: number;
@@ -30,19 +30,23 @@ interface RotatorWorkerState {
 const state: RotatorWorkerState = {
   socket: null,
   config: null,
-  childWindow: null,
+  childWindows: new Set(),
   started: false,
   connected: false,
   lastSendTime: 0,
 };
 
 /**
- * Send response to renderer process
+ * Send response to all renderer windows
  */
 function sendToRenderer(response: RotatorIPCResponse): void {
-  if (state.childWindow && !state.childWindow.isDestroyed()) {
+  for (const win of state.childWindows) {
+    if (win.isDestroyed()) {
+      state.childWindows.delete(win);
+      continue;
+    }
     try {
-      state.childWindow.webContents.send(ROTATOR_IPC_CHANNELS.RESPONSE, response);
+      win.webContents.send(ROTATOR_IPC_CHANNELS.RESPONSE, response);
     } catch (e) {
       console.error('[Rotator] Failed to send to renderer:', e);
     }
@@ -179,10 +183,22 @@ function handleRequest(request: RotatorIPCRequest): void {
 }
 
 /**
- * Set the child window reference for sending IPC messages
+ * Add a window to receive rotator IPC messages
  */
 export function setRotatorChildWindow(childWindow: BrowserWindow | null): void {
-  state.childWindow = childWindow;
+  if (childWindow) {
+    state.childWindows.add(childWindow);
+    childWindow.on('closed', () => {
+      state.childWindows.delete(childWindow);
+    });
+  }
+}
+
+/**
+ * Remove a window from rotator IPC
+ */
+export function removeRotatorChildWindow(childWindow: BrowserWindow): void {
+  state.childWindows.delete(childWindow);
 }
 
 /**
@@ -227,7 +243,7 @@ export function stopRotatorWorker(): void {
 
   state.connected = false;
   state.config = null;
-  state.childWindow = null;
+  state.childWindows.clear();
   state.started = false;
 
   console.log('[Rotator] Worker stopped');

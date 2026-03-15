@@ -1,4 +1,4 @@
-# WIFI232-B2 & GroundLink Setup Guide
+# Rotator & GroundLink Setup Guide
 
 > Step-by-step instructions for configuring the rotator communication system
 
@@ -7,11 +7,13 @@
 ## Table of Contents
 
 1. [What You Need](#1-what-you-need)
-2. [ONE-TIME Setup](#2-one-time-setup)
-3. [Verify Configuration](#3-verify-configuration)
-4. [Normal Operation](#4-normal-operation)
-5. [Remote Access Setup](#5-remote-access-setup)
-6. [Troubleshooting](#6-troubleshooting)
+2. [ONE-TIME Setup: WIFI232-B2](#2-one-time-setup)
+3. [Setup: RS232/485 TO WIFI ETH (B)](#setup-rs232485-to-wifi-eth-b)
+4. [Verify Configuration](#3-verify-configuration)
+5. [Normal Operation](#4-normal-operation)
+6. [Remote Access Setup](#5-remote-access-setup)
+7. [Building GroundLink for Windows](#building-groundlink-for-windows)
+8. [Troubleshooting](#6-troubleshooting)
 
 ---
 
@@ -540,6 +542,217 @@ If operator is NOT at the field site (different location):
 │  - IP: 192.168.1.200 (through VPN tunnel)                      │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+---
+
+## Setup: RS232/485 TO WIFI ETH (B)
+
+> Alternative adapter — Waveshare RS232/485 TO WIFI ETH (B). Use this section instead of Section 2 if you have this adapter.
+
+### What You Need
+
+| Item | Description |
+|------|-------------|
+| RS232/485 TO WIFI ETH (B) | Waveshare serial server (Part No. 25222) |
+| Arduino Pro Micro | MCU for rotator control |
+| 6-36V Power Supply | For the adapter (DC jack or terminal) |
+| 2x Wires | For RS485 A/B connection to Arduino |
+| PC with GroundLink | Windows or macOS |
+
+### Step A1: Power and Connect
+
+1. Power the adapter with 6-36V via DC jack or terminal block
+2. Connect Arduino Pro Micro to the adapter's RS485 terminal:
+   ```
+   Adapter RS485        Arduino Pro Micro
+   ─────────────        ────────────────
+   A ────────────────── RX (pin 0)
+   B ────────────────── TX (pin 1)
+   G ────────────────── GND
+   ```
+   > Note: This direct RS485→TTL connection works at 9600 baud only.
+   > For higher baud rates, add a MAX485 module on the Arduino side.
+
+### Step A2: Connect to Adapter's WiFi AP
+
+1. On your PC, open WiFi settings
+2. Connect to the adapter's AP network (named `Waveshare_XXXX`)
+3. Open browser: `http://10.10.100.254/home.html`
+4. Login: **admin** / **admin**
+
+### Step A3: Configure WiFi via curl
+
+The web form mangles special characters in passwords. Use curl instead:
+
+```bash
+# Set WiFi SSID
+curl -u admin:admin -X POST "http://10.10.100.254/EN/do_cmd_fast.html" \
+  -d "SET0=81723904=YOUR_WIFI_NAME"
+
+# Set WiFi password (encode & as %26, # as %23, etc.)
+curl -u admin:admin -X POST "http://10.10.100.254/EN/do_cmd_fast.html" \
+  -d "SET0=304087552=YOUR_PASSWORD"
+
+# Set AP+STA mode
+curl -u admin:admin -X POST "http://10.10.100.254/EN/do_cmd_fast.html" \
+  -d "SET0=18088192=2"
+
+# Enable STA client
+curl -u admin:admin -X POST "http://10.10.100.254/EN/do_cmd_fast.html" \
+  -d "SET0=81002752=1"
+```
+
+### Step A4: Set Baud Rate to 9600
+
+```bash
+# Set baud to 9600 (config value 12)
+curl -u admin:admin -X POST "http://10.10.100.254/EN/do_cmd_fast.html" \
+  -d "SET0=285344000=12"
+```
+
+> Baud rate mapping: 12=9600, 14=38400, 15=57600, 16=115200
+
+### Step A5: Reboot
+
+```bash
+curl -u admin:admin -X POST "http://10.10.100.254/EN/restart.html" \
+  -d "CMD=SYS_CONF"
+```
+
+### Step A6: Find Adapter on Network
+
+1. Connect your PC to the same WiFi network
+2. Find the adapter's IP:
+   ```bash
+   # macOS/Linux
+   arp -a | grep -i d4:ad
+
+   # Windows
+   arp -a
+   ```
+   Look for MAC addresses starting with `d4-ad-20`
+3. Ping the adapter:
+   ```bash
+   ping <adapter_ip>
+   ```
+
+### Step A7: Connect GroundLink
+
+1. Open GroundLink
+2. Go to Settings → Rotator
+3. Enter:
+   - **Host**: `<adapter_ip>` (e.g., `192.168.0.117`)
+   - **Port**: `24448`
+4. Click Connect
+
+### Step A8: Verify Data Flow
+
+```bash
+# Watch traffic between GroundLink and adapter
+sudo tcpdump -i en0 udp port 24448 -A
+```
+
+You should see:
+- **Outgoing commands**: `T:101;R:102;X:<PWM>;Y:<CMD>;CH:<checksum>;`
+- **Incoming telemetry**: `T:102;R:101;COM:<deg>;V:<voltage>;CH:<checksum>;`
+
+### URL Encoding for Special Characters in Passwords
+
+| Character | URL Encode |
+|-----------|------------|
+| `&` | `%26` |
+| `#` | `%23` |
+| `!` | `%21` |
+| `$` | `%24` |
+| `@` | `%40` |
+| `+` | `%2B` |
+| `=` | `%3D` |
+| ` ` (space) | `%20` |
+
+### RS232/485 TO WIFI ETH (B) Quick Reference Card
+
+```
+Adapter Settings (current)
+──────────────────────────
+WiFi Mode:    AP+STA
+Protocol:     UDP Server, port 24448
+UART:         9600 / 8N1 / Transparent
+Web Auth:     admin / admin
+AP IP:        10.10.100.254
+MAC prefix:   d4:ad:20
+
+Config IDs (for curl POST to do_cmd_fast.html)
+──────────────────────────────────────────────
+81723904    SSID
+304087552   Password
+18088192    Mode (1=AP, 2=AP+STA, 3=STA)
+81002752    STA enable (0=off, 1=on)
+285934080   Protocol (TCP/UDP)
+286064896   Port
+285344000   Baud rate (12=9600, 15=57600, 16=115200)
+
+Troubleshooting
+───────────────
+Data garbled?     → Swap RS485 A and B wires
+No data at all?   → Check B wire is connected
+Port in use?      → lsof -i :24449 / kill the process
+Can't reach web?  → Connect to Waveshare_XXXX AP first
+```
+
+---
+
+## Building GroundLink for Windows
+
+### Prerequisites (one-time)
+
+1. Install **Node.js LTS** from https://nodejs.org
+2. Clone or copy the project to the Windows machine
+3. Open Command Prompt in the project root:
+   ```cmd
+   cd C:\path\to\GroundLink
+   npm install
+   ```
+
+### Build the Installer
+
+```cmd
+npm run build-no-lint
+```
+
+> Use `npm run build` for a full build with TypeScript type-checking.
+> Use `npm run build-no-lint` to skip type-checking (faster, avoids strict TS errors).
+
+### Output
+
+The installer will be at:
+
+```
+release\<version>\GroundLink-Windows-<version>-Setup.exe
+```
+
+Example: `release\1.0.0\GroundLink-Windows-1.0.0-Setup.exe`
+
+### Common Build Issues
+
+| Error | Fix |
+|-------|-----|
+| `Invalid version: "1"` | Change `"version": "1"` to `"version": "1.0.0"` in `package.json` |
+| Native module errors | Run `npx @electron/rebuild` |
+| `node-hid` build fails | Install Windows Build Tools: `npm install -g windows-build-tools` |
+| `-replace was unexpected` | Use `notepad package.json` in cmd.exe (not PowerShell syntax) |
+
+### Editing package.json on Windows
+
+```cmd
+notepad package.json
+```
+
+Or via PowerShell:
+```powershell
+powershell -Command "(Get-Content package.json) -replace '\"version\": \"1\"', '\"version\": \"1.0.0\"' | Set-Content package.json"
 ```
 
 ---

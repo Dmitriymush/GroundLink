@@ -48,11 +48,17 @@ export const useRotatorStore = defineStore('rotator', () => {
   const telemetry = ref<RotatorTelemetryFrame | null>(null);
   const commandsSent = ref<number>(0);
   const telemetryReceived = ref<number>(0);
+  const telemetryConnected = ref<boolean>(false);
+
+  // Telemetry timeout — if no response within this time, warn user
+  const TELEMETRY_TIMEOUT_MS = 5000;
+  const telemetryTimedOut = ref<boolean>(false);
 
   // Internal state
   const frameBuilder = new RotatorFrameBuilder();
   const telemetryParser = new RotatorTelemetryParser();
   let sendInterval: ReturnType<typeof setInterval> | null = null;
+  let telemetryTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   let currentAzimuth = 0;
   let currentElevation = 0;
 
@@ -92,7 +98,9 @@ export const useRotatorStore = defineStore('rotator', () => {
       case 'connected':
         connectionState.value = 'connected';
         lastError.value = null;
+        telemetryTimedOut.value = false;
         startSendLoop();
+        startTelemetryTimeout();
         break;
 
       case 'disconnected':
@@ -120,6 +128,14 @@ export const useRotatorStore = defineStore('rotator', () => {
     if (frame) {
       telemetry.value = frame;
       telemetryReceived.value++;
+
+      // Mark as telemetry-connected on first frame
+      if (!telemetryConnected.value) {
+        telemetryConnected.value = true;
+        telemetryTimedOut.value = false;
+        clearTelemetryTimeout();
+        console.log('[Rotator Store] First telemetry received — device confirmed connected');
+      }
 
       // Update frame builder IDs from telemetry
       if (frame.transmitterId && frame.receiverId) {
@@ -150,6 +166,26 @@ export const useRotatorStore = defineStore('rotator', () => {
     if (sendInterval) {
       clearInterval(sendInterval);
       sendInterval = null;
+    }
+  }
+
+  /**
+   * Start timeout — if no telemetry arrives, mark as timed out
+   */
+  function startTelemetryTimeout(): void {
+    clearTelemetryTimeout();
+    telemetryTimeoutTimer = setTimeout(() => {
+      if (isConnected.value && !telemetryConnected.value) {
+        telemetryTimedOut.value = true;
+        console.warn('[Rotator Store] No telemetry received within timeout — device not responding');
+      }
+    }, TELEMETRY_TIMEOUT_MS);
+  }
+
+  function clearTelemetryTimeout(): void {
+    if (telemetryTimeoutTimer) {
+      clearTimeout(telemetryTimeoutTimer);
+      telemetryTimeoutTimer = null;
     }
   }
 
@@ -188,7 +224,12 @@ export const useRotatorStore = defineStore('rotator', () => {
 
     connectionState.value = 'connecting';
     lastError.value = null;
+    telemetryConnected.value = false;
     console.log('[Rotator Store] Sending connect request to main process...');
+
+    // Initialize at 0 azimuth, 0 pitch
+    currentAzimuth = 0;
+    currentElevation = 0;
 
     // Update frame builder with current IDs
     frameBuilder.setIds(configTransmitterId.value, configReceiverId.value);
@@ -201,8 +242,12 @@ export const useRotatorStore = defineStore('rotator', () => {
    */
   function disconnect(): void {
     stopSendLoop();
+    clearTelemetryTimeout();
     sendRequest({ type: 'disconnect' });
     connectionState.value = 'disconnected';
+    telemetryConnected.value = false;
+    telemetryTimedOut.value = false;
+    telemetry.value = null;
     telemetryParser.reset();
   }
 
@@ -315,6 +360,8 @@ export const useRotatorStore = defineStore('rotator', () => {
     telemetry,
     commandsSent,
     telemetryReceived,
+    telemetryConnected,
+    telemetryTimedOut,
 
     // Computed
     isConnected,
