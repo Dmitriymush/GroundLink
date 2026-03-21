@@ -1,9 +1,10 @@
-import { app, BrowserWindow, shell, ipcMain } from "electron";
+import { app, BrowserWindow, shell, ipcMain, session } from "electron";
 import { release } from "node:os";
 import { join } from "node:path";
 import { devices } from "node-hid";
 import { hidWorker, setChildWindow, stopHidWorker } from "./hid_worker";
 import { rotatorWorker, setRotatorChildWindow, stopRotatorWorker } from "./rotator_worker";
+import { mavlinkWorker, setMavlinkChildWindow, stopMavlinkWorker } from "./mavlink_worker";
 
 devices();
 
@@ -39,6 +40,7 @@ async function createWindow() {
 
   setChildWindow(win);
   setRotatorChildWindow(win);
+  setMavlinkChildWindow(win);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(url);
@@ -57,13 +59,20 @@ async function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // Allow geolocation for GCS auto-fill
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'geolocation');
+  });
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   win = null;
   if (process.platform !== "darwin")  {
     stopHidWorker();
     stopRotatorWorker();
+    stopMavlinkWorker();
     app.quit();
   }
 });
@@ -91,6 +100,7 @@ app.on("activate", () => {
 
 hidWorker({ ipcMain });
 rotatorWorker({ ipcMain });
+mavlinkWorker({ ipcMain });
 
 ipcMain.handle("open-win", (_, arg) => {
   const childWindow = new BrowserWindow({
@@ -138,8 +148,9 @@ ipcMain.handle("open-antenna-floating", (_, options?: { width?: number; height?:
     },
   });
 
-  // Share rotator IPC with floating window
+  // Share rotator + mavlink IPC with floating window
   setRotatorChildWindow(antennaFloatingWin);
+  setMavlinkChildWindow(antennaFloatingWin);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     antennaFloatingWin.loadURL(`${url}#/antenna-floating`);

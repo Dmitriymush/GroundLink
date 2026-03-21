@@ -1,8 +1,9 @@
 <template>
   <div class="azimuth-controller">
-    <!-- Top: Rotator panel -->
+    <!-- Top: Rotator panel (collapsible) -->
     <div class="rotator-panel" v-if="rotatorStore">
-      <div class="rotator-header">
+      <!-- Header: Rotator switch + mode toggle + expand arrow -->
+      <div class="rotator-header" @click="panelExpanded = !panelExpanded">
         <VSwitch
           v-model="rotatorEnabledModel"
           :label="t('Rotator')"
@@ -10,57 +11,205 @@
           density="compact"
           hide-details
           class="rotator-switch"
+          @click.stop
         />
-        <VTextField
-          v-if="rotatorEnabled && !rotatorConnected"
-          v-model="rotatorHost"
-          placeholder="127.0.0.1"
-          density="compact"
-          hide-details
-          variant="outlined"
-          class="rotator-host-input"
-          style="max-width: 140px; margin: 0 8px;"
-        />
-        <VBtn
+        <VBtnToggle
           v-if="rotatorEnabled"
-          :color="rotatorTelemetryConnected ? 'success' : rotatorTimedOut ? 'error' : rotatorConnected ? 'warning' : 'primary'"
-          :loading="rotatorConnecting"
-          size="small"
-          variant="tonal"
-          @click="toggleRotatorConnection"
+          v-model="controlMode"
+          mandatory
+          density="compact"
+          variant="outlined"
+          color="primary"
+          class="mode-toggle"
+          @click.stop
         >
-          {{ rotatorTelemetryConnected ? t('Connected') : rotatorTimedOut ? t('No response') : rotatorConnected ? t('Waiting...') : t('Connect') }}
-        </VBtn>
+          <VBtn value="udp" size="x-small">UDP</VBtn>
+          <VBtn value="mavlink" size="x-small">MAVLink</VBtn>
+        </VBtnToggle>
+        <!-- Collapsed status dots -->
+        <div v-if="!panelExpanded && rotatorEnabled" class="collapsed-status">
+          <span v-if="controlMode === 'udp' && rotatorTelemetryConnected" class="status-dot-inline" />
+          <span v-if="controlMode === 'mavlink' && mavlinkPositionReceived" class="status-dot-inline" />
+          <VIcon v-if="controlMode === 'mavlink' && mavlinkStore.isTracking" color="success" size="14">mdi-crosshairs-gps</VIcon>
+        </div>
+        <VIcon size="18" class="expand-icon" :class="{ expanded: panelExpanded }">mdi-chevron-down</VIcon>
       </div>
 
-      <div v-if="rotatorConnected" class="connection-status">
-        <div class="status-indicator" :class="rotatorTelemetryConnected ? 'status-ok' : rotatorTimedOut ? 'status-error' : 'status-waiting'">
-          <span class="status-dot" />
-          <span v-if="rotatorTelemetryConnected">{{ t('Device connected') }}</span>
-          <span v-else-if="rotatorTimedOut">{{ t('Device not responding! Check connection.') }}</span>
-          <span v-else>{{ t('Waiting for device response...') }}</span>
-        </div>
-        <span class="connected-host-inline">{{ rotatorHost }}:{{ rotatorStore.configPort }}</span>
-      </div>
+      <template v-if="panelExpanded && rotatorEnabled">
+        <!-- UDP MODE -->
+        <template v-if="controlMode === 'udp'">
+          <div class="connection-row">
+            <VTextField
+              v-if="!rotatorConnected"
+              v-model="rotatorHost"
+              placeholder="127.0.0.1"
+              density="compact"
+              hide-details
+              variant="outlined"
+              class="rotator-host-input"
+              style="max-width: 140px;"
+            />
+            <VBtn
+              :color="rotatorTelemetryConnected ? 'success' : rotatorTimedOut ? 'error' : rotatorConnected ? 'warning' : 'primary'"
+              :loading="rotatorConnecting"
+              size="small"
+              variant="tonal"
+              @click="toggleRotatorConnection"
+            >
+              {{ rotatorTelemetryConnected ? 'Connected' : rotatorTimedOut ? 'No response' : rotatorConnected ? 'Waiting...' : 'Connect' }}
+            </VBtn>
+          </div>
 
-      <div v-if="rotatorTelemetryConnected && rotatorTelemetry" class="telemetry-feedback">
-        <div class="telemetry-row">
-          <div class="telemetry-item">
-            <span class="telemetry-label">{{ t('Azimuth') }}</span>
-            <span class="telemetry-value">{{ rotatorTelemetry.compassDegrees.toFixed(1) }}°</span>
+          <div v-if="rotatorConnected" class="connection-status">
+            <div class="status-indicator" :class="rotatorTelemetryConnected ? 'status-ok' : rotatorTimedOut ? 'status-error' : 'status-waiting'">
+              <span class="status-dot" />
+              <span v-if="rotatorTelemetryConnected">Device connected</span>
+              <span v-else-if="rotatorTimedOut">Device not responding! Check connection.</span>
+              <span v-else>Waiting for device response...</span>
+            </div>
+            <span class="connected-host-inline">{{ rotatorHost }}:{{ rotatorStore.configPort }}</span>
           </div>
-          <div class="telemetry-item" v-if="rotatorTelemetry.voltage > 0">
-            <span class="telemetry-label">{{ t('Battery') }}</span>
-            <span class="telemetry-value" :class="rotatorTelemetry.voltage < 11 ? 'voltage-low' : 'voltage-ok'">
-              {{ rotatorTelemetry.voltage.toFixed(1) }}V
-            </span>
+
+          <div v-if="rotatorTelemetryConnected && rotatorTelemetry" class="telemetry-feedback">
+            <div class="telemetry-row">
+              <div class="telemetry-item">
+                <span class="telemetry-label">Azimuth</span>
+                <span class="telemetry-value">{{ rotatorTelemetry.compassDegrees.toFixed(1) }}°</span>
+              </div>
+              <div class="telemetry-item" v-if="rotatorTelemetry.voltage > 0">
+                <span class="telemetry-label">Battery</span>
+                <span class="telemetry-value" :class="rotatorTelemetry.voltage < 11 ? 'voltage-low' : 'voltage-ok'">
+                  {{ rotatorTelemetry.voltage.toFixed(1) }}V
+                </span>
+              </div>
+              <div class="telemetry-item">
+                <span class="telemetry-label">Sent</span>
+                <span class="telemetry-value telemetry-counter">{{ rotatorStore.commandsSent }}</span>
+              </div>
+            </div>
           </div>
-          <div class="telemetry-item">
-            <span class="telemetry-label">{{ t('Sent') }}</span>
-            <span class="telemetry-value telemetry-counter">{{ rotatorStore.commandsSent }}</span>
+        </template>
+
+        <!-- MAVLINK MODE -->
+        <template v-if="controlMode === 'mavlink'">
+          <!-- Port + Listen + Auto-track on one line -->
+          <div class="connection-row">
+            <VTextField
+              v-if="!mavlinkConnected"
+              v-model.number="mavlinkStore.mavlinkPort"
+              label="Port"
+              density="compact"
+              hide-details
+              variant="outlined"
+              style="max-width: 80px;"
+            />
+            <VBtn
+              :color="mavlinkConnected ? (mavlinkPositionReceived ? 'success' : 'warning') : 'primary'"
+              :loading="mavlinkStore.connecting"
+              size="small"
+              variant="tonal"
+              @click="toggleMavlinkConnection"
+            >
+              {{ mavlinkConnected ? (mavlinkPositionReceived ? 'Receiving' : 'Waiting...') : 'Listen' }}
+            </VBtn>
+            <div class="tracking-inline">
+              <VSwitch
+                v-model="mavlinkStore.trackingEnabled"
+                label="Auto-track"
+                :disabled="!mavlinkStore.hasGcsPosition || !mavlinkPositionReceived"
+                color="success"
+                density="compact"
+                hide-details
+              />
+              <VIcon v-if="mavlinkStore.isTracking" color="success" size="14" class="tracking-icon">mdi-crosshairs-gps</VIcon>
+            </div>
           </div>
-        </div>
-      </div>
+
+          <!-- GCS Position -->
+          <div class="gcs-position">
+            <div class="gcs-label-row">
+              <span class="section-label">GCS Position</span>
+              <VBtn
+                size="x-small"
+                variant="text"
+                color="primary"
+                :loading="geoLoading"
+                :prepend-icon="geoError ? 'mdi-alert-circle' : 'mdi-crosshairs-gps'"
+                @click="fetchGcsLocation"
+              >
+                {{ geoError || 'Auto' }}
+              </VBtn>
+            </div>
+            <div class="gcs-inputs">
+              <VTextField
+                v-model.number="mavlinkStore.gcsLat"
+                label="Lat"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                step="0.0001"
+              />
+              <VTextField
+                v-model.number="mavlinkStore.gcsLon"
+                label="Lon"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                step="0.0001"
+              />
+              <VTextField
+                v-model.number="mavlinkStore.gcsAlt"
+                label="Alt(m)"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                style="max-width: 80px;"
+              />
+            </div>
+          </div>
+
+          <!-- Drone telemetry (only when connected) -->
+          <div v-if="mavlinkConnected" class="mavlink-status">
+            <div class="connection-status">
+              <div class="status-indicator" :class="mavlinkPositionReceived ? 'status-ok' : 'status-waiting'">
+                <span class="status-dot" />
+                <span v-if="mavlinkPositionReceived">Drone GPS acquired</span>
+                <span v-else>Waiting for GPS data...</span>
+              </div>
+            </div>
+
+            <div v-if="mavlinkStore.dronePosition" class="telemetry-feedback">
+              <div class="telemetry-row">
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Drone</span>
+                  <span class="telemetry-value telemetry-coord">{{ mavlinkStore.dronePosition.lat.toFixed(4) }}°, {{ mavlinkStore.dronePosition.lon.toFixed(4) }}°</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Alt</span>
+                  <span class="telemetry-value telemetry-coord">{{ mavlinkStore.dronePosition.alt.toFixed(0) }}m</span>
+                </div>
+              </div>
+              <div v-if="mavlinkStore.trackingAngles" class="telemetry-row" style="margin-top: 2px;">
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Bearing</span>
+                  <span class="telemetry-value">{{ mavlinkStore.trackingAngles.azimuth.toFixed(1) }}°</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Elev</span>
+                  <span class="telemetry-value">{{ mavlinkStore.trackingAngles.elevation.toFixed(1) }}°</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Dist</span>
+                  <span class="telemetry-value telemetry-coord">{{ formatDistance(mavlinkStore.trackingAngles.distance) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </template>
     </div>
 
     <!-- Middle: Compass fills available space -->
@@ -143,11 +292,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch, computed } from 'vue';
 import { useIntervalFn } from '@vueuse/core';
+import { useRoute } from 'vue-router';
 import { useT } from '@/hooks/use-t';
 import { useAntennaState } from '@/hooks/use-antenna-state';
 import { devices } from '@/controllers/devices';
 import AzimuthCompass from '@/components/atoms/AzimuthCompass.vue';
 import { useRotatorStore } from '@/store/rotator-store';
+import { useMavlinkStore } from '@/store/mavlink-store';
 
 let rotatorStore: ReturnType<typeof useRotatorStore> | null = null;
 try {
@@ -155,6 +306,17 @@ try {
 } catch (e) {
   console.warn('[AzimuthController] Rotator store not available:', e);
 }
+
+const mavlinkStore = useMavlinkStore();
+
+// Ownership: floating window takes priority over main window for sending commands
+const route = useRoute();
+const isFloatingInstance = computed(() => route.path === '/antenna-floating');
+const isActiveSender = computed(() => {
+  if (isFloatingInstance.value) return true;
+  // Main window sends only when floating window is NOT open
+  return localStorage.getItem('antenna-floating-active') !== 'true';
+});
 
 interface Props {
   sendInterval?: number;
@@ -180,6 +342,7 @@ const {
   stepElevation,
 } = useAntennaState();
 
+const panelExpanded = ref(false);
 const continuousInterval = ref<ReturnType<typeof setInterval> | null>(null);
 const shiftPressed = ref(false);
 
@@ -212,6 +375,7 @@ const stopContinuousChange = () => {
 };
 
 const sendData = () => {
+  if (!isActiveSender.value) return;
   devices.hoz = hozRaw.value;
   devices.ver = verRaw.value;
 };
@@ -235,11 +399,11 @@ useIntervalFn(sendData, props.sendInterval);
 
 if (rotatorStore) {
   watch([azimuthDegrees, elevationDegrees], ([az, el]) => {
-    if (rotatorStore?.rotatorEnabled && power.value) rotatorStore.setTargetPosition(az, el);
+    if (isActiveSender.value && rotatorStore?.rotatorEnabled && power.value) rotatorStore.setTargetPosition(az, el);
   }, { immediate: true });
 
   watch(power, (isPowerOn) => {
-    if (isPowerOn && rotatorStore?.rotatorEnabled) rotatorStore.setTargetPosition(azimuthDegrees.value, elevationDegrees.value);
+    if (isActiveSender.value && isPowerOn && rotatorStore?.rotatorEnabled) rotatorStore.setTargetPosition(azimuthDegrees.value, elevationDegrees.value);
   });
 }
 
@@ -260,6 +424,93 @@ const rotatorHost = computed({
   set: (v: string) => { if (rotatorStore) rotatorStore.configHost = v; }
 });
 
+const controlMode = computed({
+  get: () => rotatorStore?.controlMode ?? 'udp',
+  set: (v: 'udp' | 'mavlink') => { if (rotatorStore) rotatorStore.controlMode = v; }
+});
+
+// Geolocation auto-fill
+const geoLoading = ref(false);
+const geoError = ref('');
+
+const fetchGcsLocationViaIP = async () => {
+  const res = await fetch('http://ip-api.com/json/?fields=lat,lon');
+  const data = await res.json();
+  if (data.lat && data.lon) {
+    mavlinkStore.setGcsPosition(
+      parseFloat(data.lat.toFixed(4)),
+      parseFloat(data.lon.toFixed(4)),
+      0,
+    );
+    return true;
+  }
+  return false;
+};
+
+const fetchGcsLocation = async () => {
+  geoLoading.value = true;
+  geoError.value = '';
+
+  // Try browser geolocation first
+  if (navigator.geolocation) {
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 5000,
+        });
+      });
+      mavlinkStore.setGcsPosition(
+        parseFloat(pos.coords.latitude.toFixed(6)),
+        parseFloat(pos.coords.longitude.toFixed(6)),
+        Math.round(pos.coords.altitude ?? 0),
+      );
+      geoLoading.value = false;
+      return;
+    } catch {
+      // Fall through to IP-based
+    }
+  }
+
+  // Fallback: IP-based geolocation
+  try {
+    const ok = await fetchGcsLocationViaIP();
+    geoLoading.value = false;
+    if (!ok) {
+      geoError.value = 'Failed';
+      setTimeout(() => { geoError.value = ''; }, 3000);
+    }
+  } catch {
+    geoLoading.value = false;
+    geoError.value = 'Failed';
+    setTimeout(() => { geoError.value = ''; }, 3000);
+  }
+};
+
+const mavlinkConnected = computed(() => mavlinkStore.connected);
+const mavlinkPositionReceived = computed(() => mavlinkStore.positionReceived);
+
+const toggleMavlinkConnection = () => {
+  if (mavlinkStore.connected) {
+    mavlinkStore.disconnect();
+  } else {
+    mavlinkStore.connect();
+  }
+};
+
+const formatDistance = (meters: number): string => {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)}km`;
+  return `${meters.toFixed(0)}m`;
+};
+
+// Auto-tracking: when MAVLink tracking is active, override compass angles
+watch(() => mavlinkStore.trackingAngles, (angles) => {
+  if (controlMode.value === 'mavlink' && mavlinkStore.isTracking && angles) {
+    setAzimuthDegrees(Math.round(angles.azimuth));
+    setElevationDegrees(Math.round(angles.elevation));
+  }
+}, { deep: true });
+
 const toggleRotatorConnection = () => {
   if (!rotatorStore) return;
   if (rotatorStore.isConnected) {
@@ -279,12 +530,18 @@ const isInDeadZone = computed(() => {
 onMounted(() => {
   document.addEventListener('keydown', handleKeyDown);
   document.addEventListener('keyup', handleKeyUp);
+  if (isFloatingInstance.value) {
+    localStorage.setItem('antenna-floating-active', 'true');
+  }
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeyDown);
   document.removeEventListener('keyup', handleKeyUp);
   stopContinuousChange();
+  if (isFloatingInstance.value) {
+    localStorage.removeItem('antenna-floating-active');
+  }
 });
 </script>
 
@@ -310,11 +567,86 @@ onBeforeUnmount(() => {
 
 .rotator-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  cursor: pointer;
+  user-select: none;
 }
 
 .rotator-switch { flex: 0 0 auto; }
+.mode-toggle { flex: 0 0 auto; margin-left: 8px; }
+
+.collapsed-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.status-dot-inline {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #4caf50;
+  box-shadow: 0 0 4px #4caf50;
+}
+
+.expand-icon {
+  margin-left: auto;
+  transition: transform 0.2s;
+  color: rgba(128, 128, 128, 0.5);
+  flex-shrink: 0;
+}
+
+.expand-icon.expanded {
+  transform: rotate(180deg);
+}
+
+.tracking-inline {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.connection-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: rgba(128, 128, 128, 0.7);
+  margin-top: 6px;
+  display: block;
+}
+
+.gcs-position { margin-top: 4px; }
+
+.gcs-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gcs-inputs {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.gcs-inputs > * { flex: 1; }
+
+.mavlink-status { margin-top: 6px; }
+
+.tracking-icon {
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.telemetry-coord { font-size: 13px !important; color: #1976d2 !important; }
 
 .connection-status {
   display: flex;

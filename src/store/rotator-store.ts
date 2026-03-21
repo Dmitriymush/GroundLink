@@ -39,6 +39,9 @@ export const useRotatorStore = defineStore('rotator', () => {
   const configSendIntervalMs = useStorage<number>('rotator-send-interval', DEFAULT_ROTATOR_CONFIG.sendIntervalMs);
   const rotatorEnabled = useStorage<boolean>('rotator-enabled', false);
 
+  /** Control mode: 'udp' = current WIFI232-B2 protocol, 'mavlink' = auto-tracking via MAVLink */
+  const controlMode = useStorage<'udp' | 'mavlink'>('rotator-control-mode', 'udp');
+
   // ============================================================
   // RUNTIME STATE
   // ============================================================
@@ -353,6 +356,7 @@ export const useRotatorStore = defineStore('rotator', () => {
     configReceiverId,
     configSendIntervalMs,
     rotatorEnabled,
+    controlMode,
 
     // State
     connectionState,

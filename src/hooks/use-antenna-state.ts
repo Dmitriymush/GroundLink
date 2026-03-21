@@ -1,5 +1,5 @@
 import { computed, readonly } from 'vue';
-import { useSessionStorage } from '@vueuse/core';
+import { useStorage } from '@vueuse/core';
 import { mapValue } from '@/utils';
 
 export interface AntennaState {
@@ -13,13 +13,13 @@ export interface AntennaState {
 const AZIMUTH_OFFSET = 45;
 
 export function useAntennaState() {
-  // Raw hardware values (0-2047 range)
-  const hozRaw = useSessionStorage('antenna-hoz', 0);
-  const verRaw = useSessionStorage('antenna-ver', 1024); // Start at ~45 deg
+  // Raw hardware values (0-2047 range) — localStorage for cross-window sync
+  const hozRaw = useStorage('antenna-hoz', 0);
+  const verRaw = useStorage('antenna-ver', 1024); // Start at ~45 deg
 
   // Toggle states
-  const power = useSessionStorage('antenna-power', false);
-  const tracking = useSessionStorage('antenna-tracking', false);
+  const power = useStorage('antenna-power', false);
+  const tracking = useStorage('antenna-tracking', false);
 
   // Display values (degrees)
   // Hardware to display: add offset (hardware 0 shows as 45°)

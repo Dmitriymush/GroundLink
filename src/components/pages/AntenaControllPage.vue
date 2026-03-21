@@ -2,19 +2,15 @@
   <div class="antenna-page">
     <!-- Header -->
     <div class="page-header">
-      <h2>{{ t('Antenna Control') }}</h2>
-      <p class="page-subtitle">
-        {{ t('Use arrow keys or drag on compass to control antenna. Hold Shift for faster movement.') }}
-      </p>
+      <span class="page-title">{{ t('Antenna Control') }}</span>
       <VBtn
         color="primary"
-        variant="tonal"
+        variant="text"
         size="small"
-        prepend-icon="mdi-open-in-new"
+        icon="mdi-open-in-new"
+        :title="t('Open in separate window')"
         @click="openFloatingWindow"
-      >
-        {{ t('Open in separate window') }}
-      </VBtn>
+      />
     </div>
 
     <!-- Controller fills remaining space -->
@@ -49,20 +45,15 @@ const openFloatingWindow = () => {
 
 .page-header {
   flex-shrink: 0;
-  text-align: center;
-  padding-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 4px;
 }
 
-.page-header h2 {
-  margin: 0;
+.page-title {
   font-weight: 500;
-  font-size: 20px;
-}
-
-.page-subtitle {
-  margin: 4px 0 8px;
-  font-size: 13px;
-  opacity: 0.7;
+  font-size: 16px;
 }
 
 .page-body {
