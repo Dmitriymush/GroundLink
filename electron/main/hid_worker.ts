@@ -39,9 +39,29 @@ export const setChildWindow = (childWindow) => {
 
 export const hidWorker = ({ ipcMain }) => {
   if (self.started) return;
-  self.worker = new Worker(getPath());
+
+  try {
+    self.worker = new Worker(getPath());
+  } catch (e) {
+    console.warn("[HID] Failed to start worker:", (e as Error).message);
+    self.started = true; // prevent re-attempts
+    // Register a no-op handler so renderer doesn't get unhandled invoke errors
+    ipcMain.handle("hid", async () => {});
+    return;
+  }
+
   broadcast = new BroadcastChannel("hid");
   self.started = true;
+
+  self.worker.on("error", (err) => {
+    console.warn("[HID] Worker error:", err.message);
+  });
+
+  self.worker.on("exit", (code) => {
+    if (code !== 0) {
+      console.warn(`[HID] Worker exited with code ${code}`);
+    }
+  });
 
   ipcMain.handle("hid", async (_, data) => {
     if (!data) {

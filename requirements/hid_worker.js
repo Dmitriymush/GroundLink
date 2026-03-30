@@ -1,6 +1,14 @@
 const { BroadcastChannel, isMainThread } = require("node:worker_threads");
-const { HID, devicesAsync } = require("node-hid");
 const dgram = require("dgram");
+
+let HID, devicesAsync;
+try {
+  const nodeHid = require("node-hid");
+  HID = nodeHid.HID;
+  devicesAsync = nodeHid.devicesAsync;
+} catch (e) {
+  console.warn("[HID Worker] node-hid not available:", e.message);
+}
 
 // Error types
 const ErrorCode = {
@@ -209,6 +217,9 @@ bc.onmessage = (event) => {
   if (data.vendorId && data.productId) {
     console.log("send channesls to ", dev.udpIp, dev.udpPort);
     try {
+      if (!HID) {
+        throw new Error("node-hid not available on this platform");
+      }
       validateDeviceParams(data.vendorId, data.productId);
       dev.device = new HID(data.vendorId, data.productId);
     } catch (error) {
@@ -257,6 +268,7 @@ bc.onmessage = (event) => {
 
       setTimeout(() => {
         try {
+          if (!HID) throw new Error("node-hid not available");
           dev.device = new HID(data.vendorId, data.productId);
           dev.connected = true;
         } catch (reconnectError) {

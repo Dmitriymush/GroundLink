@@ -1,6 +1,14 @@
 import _ from 'lodash';
-import {type Device, devices} from 'node-hid';
 import { sleep } from './sleep.js';
+
+type Device = import('node-hid').Device;
+
+let _devices: (() => Device[]) | null = null;
+try {
+    _devices = require('node-hid').devices;
+} catch {
+    console.warn('[USB] node-hid not available');
+}
 
 export class Usb {
     public allowedVendors: number[]
@@ -12,7 +20,9 @@ export class Usb {
     }
 
     async getDevicesList(): Promise<Device[]> {
-        const hidDevices = devices()
+        if (!_devices) return [];
+
+        const hidDevices = _devices()
             .filter((device: Device) => !!device.product);
 
         return _.uniqBy(hidDevices, 'path')

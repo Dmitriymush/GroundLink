@@ -9,7 +9,6 @@ import 'vuetify/styles'
 import { createVuetify } from 'vuetify'
 import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
-import { devices } from 'node-hid';
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import { routes } from '@/router';
 import '@fortawesome/fontawesome-free/css/all.css';
@@ -31,7 +30,12 @@ const router = createRouter({
 //
 // });
 
-console.log(devices());
+try {
+    const nodeHid = require('node-hid');
+    console.log(nodeHid.devices());
+} catch (e) {
+    console.warn('[Main] node-hid not available, HID devices disabled:', (e as Error).message);
+}
 
 const vuetify = createVuetify({
     components,

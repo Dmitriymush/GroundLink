@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useT } from "@/hooks/use-t";
-import { type Device } from "node-hid";
+import type { Device } from "node-hid";
 import { computed, ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { devices } from "@/controllers/devices";
 

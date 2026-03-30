@@ -1,5 +1,7 @@
-import { HID, type Device } from "node-hid";
 import _, { add } from "lodash";
+
+type Device = import("node-hid").Device;
+type HID = import("node-hid").HID;
 import { Usb } from "./usb";
 import { socket, Socket } from "./socket";
 import { EventEmitter } from "events";

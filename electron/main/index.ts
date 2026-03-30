@@ -1,12 +1,16 @@
 import { app, BrowserWindow, shell, ipcMain, session } from "electron";
 import { release } from "node:os";
 import { join } from "node:path";
-import { devices } from "node-hid";
 import { hidWorker, setChildWindow, stopHidWorker } from "./hid_worker";
 import { rotatorWorker, setRotatorChildWindow, stopRotatorWorker } from "./rotator_worker";
 import { mavlinkWorker, setMavlinkChildWindow, stopMavlinkWorker } from "./mavlink_worker";
 
-devices();
+try {
+  const nodeHid = require("node-hid");
+  nodeHid.devices();
+} catch (e) {
+  console.warn("[Main] node-hid not available, HID devices disabled:", (e as Error).message);
+}
 
 process.env.DIST_ELECTRON = join(__dirname, "..");
 process.env.DIST = join(process.env.DIST_ELECTRON, "../dist");
