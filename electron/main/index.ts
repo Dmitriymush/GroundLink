@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { hidWorker, setChildWindow, stopHidWorker } from "./hid_worker";
 import { rotatorWorker, setRotatorChildWindow, stopRotatorWorker } from "./rotator_worker";
 import { mavlinkWorker, setMavlinkChildWindow, stopMavlinkWorker } from "./mavlink_worker";
+import { sinelinkWorker, setSinelinkChildWindow, stopSinelinkWorker } from "./sinelink_worker";
+import { antennaMavlinkWorker, setAntennaMavlinkChildWindow, stopAntennaMavlinkWorker } from "./antenna_mavlink_worker";
 
 try {
   const nodeHid = require("node-hid");
@@ -45,6 +47,8 @@ async function createWindow() {
   setChildWindow(win);
   setRotatorChildWindow(win);
   setMavlinkChildWindow(win);
+  setSinelinkChildWindow(win);
+  setAntennaMavlinkChildWindow(win);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(url);
@@ -77,6 +81,8 @@ app.on("window-all-closed", () => {
     stopHidWorker();
     stopRotatorWorker();
     stopMavlinkWorker();
+    stopSinelinkWorker();
+    stopAntennaMavlinkWorker();
     app.quit();
   }
 });
@@ -84,6 +90,8 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   stopHidWorker();
   stopRotatorWorker();
+  stopSinelinkWorker();
+  stopAntennaMavlinkWorker();
 });
 
 app.on("second-instance", () => {
@@ -105,6 +113,8 @@ app.on("activate", () => {
 hidWorker({ ipcMain });
 rotatorWorker({ ipcMain });
 mavlinkWorker({ ipcMain });
+sinelinkWorker({ ipcMain });
+antennaMavlinkWorker({ ipcMain });
 
 ipcMain.handle("open-win", (_, arg) => {
   const childWindow = new BrowserWindow({
@@ -152,9 +162,11 @@ ipcMain.handle("open-antenna-floating", (_, options?: { width?: number; height?:
     },
   });
 
-  // Share rotator + mavlink IPC with floating window
+  // Share rotator + mavlink + sinelink IPC with floating window
   setRotatorChildWindow(antennaFloatingWin);
   setMavlinkChildWindow(antennaFloatingWin);
+  setSinelinkChildWindow(antennaFloatingWin);
+  setAntennaMavlinkChildWindow(antennaFloatingWin);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     antennaFloatingWin.loadURL(`${url}#/antenna-floating`);

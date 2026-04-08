@@ -25,12 +25,15 @@
         >
           <VBtn value="udp" size="x-small">UDP</VBtn>
           <VBtn value="mavlink" size="x-small">MAVLink</VBtn>
+          <VBtn value="mavlink-serial" size="x-small">SineLink</VBtn>
         </VBtnToggle>
         <!-- Collapsed status dots -->
         <div v-if="!panelExpanded && rotatorEnabled" class="collapsed-status">
           <span v-if="controlMode === 'udp' && rotatorTelemetryConnected" class="status-dot-inline" />
           <span v-if="controlMode === 'mavlink' && mavlinkPositionReceived" class="status-dot-inline" />
           <VIcon v-if="controlMode === 'mavlink' && mavlinkStore.isTracking" color="success" size="14">mdi-crosshairs-gps</VIcon>
+          <span v-if="controlMode === 'mavlink-serial' && sinelinkStore.sinelinkConnected" class="status-dot-inline" />
+          <VIcon v-if="controlMode === 'mavlink-serial' && sinelinkStore.isTracking" color="success" size="14">mdi-crosshairs-gps</VIcon>
         </div>
         <VIcon size="18" class="expand-icon" :class="{ expanded: panelExpanded }">mdi-chevron-down</VIcon>
       </div>
@@ -90,7 +93,7 @@
           </div>
         </template>
 
-        <!-- MAVLINK MODE -->
+        <!-- MAVLINK MODE (UDP) -->
         <template v-if="controlMode === 'mavlink'">
           <!-- Port + Listen + Auto-track on one line -->
           <div class="connection-row">
@@ -209,6 +212,171 @@
             </div>
           </div>
         </template>
+
+        <!-- MAVLINK SERIAL MODE (Sine.link + antenna servo) -->
+        <template v-if="controlMode === 'mavlink-serial'">
+          <!-- Refresh ports button -->
+          <div class="connection-row">
+            <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-refresh" @click="sinelinkStore.refreshPorts()">
+              Scan ports
+            </VBtn>
+            <div class="tracking-inline">
+              <VSwitch
+                v-model="sinelinkStore.trackingEnabled"
+                label="Auto-track"
+                :disabled="!sinelinkStore.hasGcsPosition || !sinelinkStore.positionValid"
+                color="success"
+                density="compact"
+                hide-details
+              />
+              <VIcon v-if="sinelinkStore.isTracking" color="success" size="14" class="tracking-icon">mdi-crosshairs-gps</VIcon>
+            </div>
+          </div>
+
+          <!-- Sine.link modem (input) -->
+          <div class="section-label" style="margin-top: 8px;">Sine.link (drone GPS)</div>
+          <div class="connection-row">
+            <VSelect
+              v-if="!sinelinkStore.sinelinkConnected"
+              v-model="sinelinkStore.sinelinkPort"
+              :items="portItems"
+              label="COM Port"
+              density="compact"
+              hide-details
+              variant="outlined"
+              style="max-width: 200px;"
+            />
+            <VBtn
+              :color="sinelinkStore.sinelinkConnected ? (sinelinkStore.positionValid ? 'success' : 'warning') : 'primary'"
+              :loading="sinelinkStore.sinelinkConnecting"
+              :disabled="!sinelinkStore.sinelinkPort && !sinelinkStore.sinelinkConnected"
+              size="small"
+              variant="tonal"
+              @click="toggleSinelinkConnection"
+            >
+              {{ sinelinkStore.sinelinkConnected ? (sinelinkStore.positionValid ? 'Receiving' : 'Waiting...') : 'Connect' }}
+            </VBtn>
+          </div>
+
+          <!-- Antenna device (output) -->
+          <div class="section-label" style="margin-top: 8px;">Antenna (servo output)</div>
+          <div class="connection-row">
+            <VSelect
+              v-if="!sinelinkStore.antennaConnected"
+              v-model="sinelinkStore.antennaPort"
+              :items="portItems"
+              label="COM Port"
+              density="compact"
+              hide-details
+              variant="outlined"
+              style="max-width: 200px;"
+            />
+            <VSelect
+              v-if="!sinelinkStore.antennaConnected"
+              v-model.number="sinelinkStore.antennaBaud"
+              :items="baudRateOptions"
+              label="Baud"
+              density="compact"
+              hide-details
+              variant="outlined"
+              style="max-width: 110px;"
+            />
+            <VBtn
+              :color="sinelinkStore.antennaConnected ? (sinelinkStore.antennaHeartbeatReceived ? 'success' : 'warning') : 'primary'"
+              :loading="sinelinkStore.antennaConnecting"
+              :disabled="!sinelinkStore.antennaPort && !sinelinkStore.antennaConnected"
+              size="small"
+              variant="tonal"
+              @click="toggleAntennaConnection"
+            >
+              {{ sinelinkStore.antennaConnected ? (sinelinkStore.antennaHeartbeatReceived ? 'Connected' : 'Waiting...') : 'Connect' }}
+            </VBtn>
+          </div>
+
+          <!-- GCS Position -->
+          <div class="gcs-position">
+            <div class="gcs-label-row">
+              <span class="section-label">GCS Position</span>
+              <VBtn
+                size="x-small"
+                variant="text"
+                color="primary"
+                :loading="geoLoading"
+                :prepend-icon="geoError ? 'mdi-alert-circle' : 'mdi-crosshairs-gps'"
+                @click="fetchGcsLocationSinelink"
+              >
+                {{ geoError || 'Auto' }}
+              </VBtn>
+            </div>
+            <div class="gcs-inputs">
+              <VTextField
+                v-model.number="sinelinkStore.gcsLat"
+                label="Lat"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                step="0.0001"
+              />
+              <VTextField
+                v-model.number="sinelinkStore.gcsLon"
+                label="Lon"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                step="0.0001"
+              />
+              <VTextField
+                v-model.number="sinelinkStore.gcsAlt"
+                label="Alt(m)"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                style="max-width: 80px;"
+              />
+            </div>
+          </div>
+
+          <!-- Drone telemetry -->
+          <div v-if="sinelinkStore.sinelinkConnected" class="mavlink-status">
+            <div class="connection-status">
+              <div class="status-indicator" :class="sinelinkStore.positionValid ? 'status-ok' : 'status-waiting'">
+                <span class="status-dot" />
+                <span v-if="sinelinkStore.positionValid">SNS position (conf: {{ sinelinkStore.positionConfidence }})</span>
+                <span v-else>Waiting for SNS data...</span>
+              </div>
+            </div>
+
+            <div v-if="sinelinkStore.dronePosition" class="telemetry-feedback">
+              <div class="telemetry-row">
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Drone</span>
+                  <span class="telemetry-value telemetry-coord">{{ sinelinkStore.dronePosition.lat.toFixed(4) }}°, {{ sinelinkStore.dronePosition.lon.toFixed(4) }}°</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Alt</span>
+                  <span class="telemetry-value telemetry-coord">{{ sinelinkStore.dronePosition.alt.toFixed(0) }}m</span>
+                </div>
+              </div>
+              <div v-if="sinelinkStore.trackingAngles" class="telemetry-row" style="margin-top: 2px;">
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Bearing</span>
+                  <span class="telemetry-value">{{ sinelinkStore.trackingAngles.azimuth.toFixed(1) }}°</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Elev</span>
+                  <span class="telemetry-value">{{ sinelinkStore.trackingAngles.elevation.toFixed(1) }}°</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="telemetry-label">Dist</span>
+                  <span class="telemetry-value telemetry-coord">{{ formatDistance(sinelinkStore.trackingAngles.distance) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </template>
     </div>
 
@@ -299,6 +467,8 @@ import { devices } from '@/controllers/devices';
 import AzimuthCompass from '@/components/atoms/AzimuthCompass.vue';
 import { useRotatorStore } from '@/store/rotator-store';
 import { useMavlinkStore } from '@/store/mavlink-store';
+import { useSinelinkStore } from '@/store/sinelink-store';
+import { RotatorFrameBuilder } from '@/services/rotator';
 
 let rotatorStore: ReturnType<typeof useRotatorStore> | null = null;
 try {
@@ -308,6 +478,8 @@ try {
 }
 
 const mavlinkStore = useMavlinkStore();
+const sinelinkStore = useSinelinkStore();
+const sinelinkFrameBuilder = new RotatorFrameBuilder();
 
 // Ownership: floating window takes priority over main window for sending commands
 const route = useRoute();
@@ -329,6 +501,8 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const t = useT();
+
+const baudRateOptions = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
 const {
   hozRaw,
@@ -397,16 +571,6 @@ const handleKeyUp = (e: KeyboardEvent) => {
 
 useIntervalFn(sendData, props.sendInterval);
 
-if (rotatorStore) {
-  watch([azimuthDegrees, elevationDegrees], ([az, el]) => {
-    if (isActiveSender.value && rotatorStore?.rotatorEnabled && power.value) rotatorStore.setTargetPosition(az, el);
-  }, { immediate: true });
-
-  watch(power, (isPowerOn) => {
-    if (isActiveSender.value && isPowerOn && rotatorStore?.rotatorEnabled) rotatorStore.setTargetPosition(azimuthDegrees.value, elevationDegrees.value);
-  });
-}
-
 const rotatorEnabled = computed(() => rotatorStore?.rotatorEnabled ?? false);
 const rotatorConnected = computed(() => rotatorStore?.isConnected ?? false);
 const rotatorConnecting = computed(() => rotatorStore?.isConnecting ?? false);
@@ -426,8 +590,70 @@ const rotatorHost = computed({
 
 const controlMode = computed({
   get: () => rotatorStore?.controlMode ?? 'udp',
-  set: (v: 'udp' | 'mavlink') => { if (rotatorStore) rotatorStore.controlMode = v; }
+  set: (v: 'udp' | 'mavlink' | 'mavlink-serial') => { if (rotatorStore) rotatorStore.controlMode = v; }
 });
+
+// Serial port items for VSelect
+const portItems = computed(() =>
+  sinelinkStore.availablePorts.map(p => ({
+    title: `${p.path}${p.manufacturer ? ` (${p.manufacturer})` : ''}`,
+    value: p.path,
+  }))
+);
+
+const toggleSinelinkConnection = () => {
+  if (sinelinkStore.sinelinkConnected) {
+    sinelinkStore.disconnectSinelink();
+  } else {
+    sinelinkStore.connectSinelink();
+  }
+};
+
+const toggleAntennaConnection = () => {
+  if (sinelinkStore.antennaConnected) {
+    sinelinkStore.disconnectAntenna();
+  } else {
+    sinelinkStore.connectAntenna();
+  }
+};
+
+const fetchGcsLocationSinelink = async () => {
+  geoLoading.value = true;
+  geoError.value = '';
+
+  if (navigator.geolocation) {
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 5000,
+        });
+      });
+      sinelinkStore.setGcsPosition(
+        parseFloat(pos.coords.latitude.toFixed(6)),
+        parseFloat(pos.coords.longitude.toFixed(6)),
+        Math.round(pos.coords.altitude ?? 0),
+      );
+      geoLoading.value = false;
+      return;
+    } catch { /* fall through */ }
+  }
+
+  try {
+    const res = await fetch('http://ip-api.com/json/?fields=lat,lon');
+    const data = await res.json();
+    if (data.lat && data.lon) {
+      sinelinkStore.setGcsPosition(parseFloat(data.lat.toFixed(4)), parseFloat(data.lon.toFixed(4)), 0);
+    } else {
+      geoError.value = 'Failed';
+      setTimeout(() => { geoError.value = ''; }, 3000);
+    }
+  } catch {
+    geoError.value = 'Failed';
+    setTimeout(() => { geoError.value = ''; }, 3000);
+  }
+  geoLoading.value = false;
+};
 
 // Geolocation auto-fill
 const geoLoading = ref(false);
@@ -510,6 +736,74 @@ watch(() => mavlinkStore.trackingAngles, (angles) => {
     setElevationDegrees(Math.round(angles.elevation));
   }
 }, { deep: true });
+
+// Auto-tracking: Sine.link mode — override compass angles + send servo commands
+watch(() => sinelinkStore.trackingAngles, (angles) => {
+  if (controlMode.value === 'mavlink-serial' && sinelinkStore.isTracking && angles) {
+    setAzimuthDegrees(Math.round(angles.azimuth));
+    setElevationDegrees(Math.round(angles.elevation));
+
+    // Send servo commands using the same PWM conversion as UDP mode
+    const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(
+      Math.round(angles.azimuth),
+      Math.round(angles.elevation),
+    );
+    if (pwmValues) {
+      sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+    }
+  }
+}, { deep: true });
+
+// When in sinelink mode and panel opens, auto-scan ports
+watch(controlMode, (mode) => {
+  if (mode === 'mavlink-serial') {
+    sinelinkStore.refreshPorts();
+  }
+});
+
+// Main position watch — sends commands to rotator (UDP) or antenna (MAVLink serial)
+if (rotatorStore) {
+  watch([azimuthDegrees, elevationDegrees], ([az, el]) => {
+    const mode = controlMode.value;
+    if (mode === 'mavlink-serial') {
+      console.log(`[AzimuthCtrl] watch fired: az=${az} el=${el} mode=${mode} isActiveSender=${isActiveSender.value} rotatorEnabled=${rotatorStore?.rotatorEnabled} power=${power.value} antennaConnected=${sinelinkStore.antennaConnected}`);
+    }
+
+    if (!isActiveSender.value || !rotatorStore?.rotatorEnabled || !power.value) return;
+
+    // UDP and MAVLink UDP modes — send via rotator store
+    if (mode === 'udp' || mode === 'mavlink') {
+      rotatorStore.setTargetPosition(az, el);
+    }
+
+    // MAVLink Serial mode — send servo commands directly
+    if (mode === 'mavlink-serial') {
+      if (sinelinkStore.antennaConnected) {
+        const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(az, el);
+        console.log(`[AzimuthCtrl] Sending servo: pwm=`, pwmValues);
+        if (pwmValues) {
+          sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+        }
+      } else {
+        console.log(`[AzimuthCtrl] Antenna not connected, skipping servo send`);
+      }
+    }
+  }, { immediate: true });
+
+  watch(power, (isPowerOn) => {
+    if (!isActiveSender.value || !isPowerOn || !rotatorStore?.rotatorEnabled) return;
+
+    if (controlMode.value === 'udp' || controlMode.value === 'mavlink') {
+      rotatorStore.setTargetPosition(azimuthDegrees.value, elevationDegrees.value);
+    }
+    if (controlMode.value === 'mavlink-serial' && sinelinkStore.antennaConnected) {
+      const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(azimuthDegrees.value, elevationDegrees.value);
+      if (pwmValues) {
+        sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+      }
+    }
+  });
+}
 
 const toggleRotatorConnection = () => {
   if (!rotatorStore) return;

@@ -4,3 +4,4 @@ export * from './app-settings-store';
 export * from './jr-settings-store';
 export * from './can-store';
 export * from './rotator-store';
+export * from './sinelink-store';

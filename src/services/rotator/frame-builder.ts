@@ -165,6 +165,22 @@ export class RotatorFrameBuilder {
   }
 
   /**
+   * Get PWM values for azimuth and elevation (used by MAVLink servo mode)
+   * Returns same values as buildFrame but without frame formatting.
+   * Returns null if azimuth is in dead zone.
+   */
+  getAzimuthElevationPwm(uiAzimuth: number, uiElevation: number): { azimuthPwm: number; elevationCmd: number } | null {
+    const protocolAzimuth = this.uiToProtocolAzimuth(uiAzimuth);
+    if (protocolAzimuth === null) return null;
+
+    const azimuthPwm = this.azimuthToPWM(protocolAzimuth);
+    const protocolElevation = this.uiToProtocolElevation(uiElevation);
+    const elevationCmd = this.elevationToCommand(protocolElevation);
+
+    return { azimuthPwm, elevationCmd };
+  }
+
+  /**
    * Build and serialize frame in one call
    * Returns null if azimuth is in dead zone
    */
