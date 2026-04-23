@@ -1,9 +1,9 @@
 /**
- * MAVLink UDP Listener Worker
+ * MAVLink UDP Worker
  *
- * Listens for MAVLink telemetry on a UDP port (default 14550).
- * Parses HEARTBEAT and GLOBAL_POSITION_INT messages and forwards
- * parsed data to the renderer process via IPC.
+ * Connects to a remote MAVLink endpoint (drone/RPanion/mavlink-router)
+ * via UDP. Sends GCS heartbeats so the remote knows we exist and
+ * starts streaming telemetry back to us.
  *
  * Flow: RPanion/FC → UDP → this worker → IPC → mavlink-store → tracking math → antenna
  */
@@ -11,6 +11,7 @@
 import * as dgram from 'dgram';
 import { ipcMain, BrowserWindow } from 'electron';
 import { MavlinkParser } from '../../src/services/mavlink/mavlink-parser';
+import { MavlinkSerialBuilder } from '../../src/services/sinelink/mavlink-serial';
 import {
   MAVLINK_IPC_CHANNELS,
   type MavlinkConfig,
@@ -21,19 +22,23 @@ import {
 interface MavlinkWorkerState {
   socket: dgram.Socket | null;
   parser: MavlinkParser;
+  mavBuilder: MavlinkSerialBuilder;
   config: MavlinkConfig | null;
   childWindows: Set<BrowserWindow>;
   started: boolean;
   connected: boolean;
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
 }
 
 const state: MavlinkWorkerState = {
   socket: null,
   parser: new MavlinkParser(),
+  mavBuilder: new MavlinkSerialBuilder(255, 190),
   config: null,
   childWindows: new Set(),
   started: false,
   connected: false,
+  heartbeatTimer: null,
 };
 
 function sendToRenderer(response: MavlinkIPCResponse): void {
@@ -48,6 +53,14 @@ function sendToRenderer(response: MavlinkIPCResponse): void {
       console.error('[MAVLink] Failed to send to renderer:', e);
     }
   }
+}
+
+function sendHeartbeat(): void {
+  if (!state.socket || !state.config) return;
+  const frame = state.mavBuilder.buildHeartbeat();
+  try {
+    state.socket.send(frame, state.config.port, state.config.bindAddress);
+  } catch (_) {}
 }
 
 function connect(config: MavlinkConfig): void {
@@ -93,14 +106,23 @@ function connect(config: MavlinkConfig): void {
     state.socket.on('close', () => {
       console.log('[MAVLink] Socket closed');
       state.connected = false;
+      if (state.heartbeatTimer) {
+        clearInterval(state.heartbeatTimer);
+        state.heartbeatTimer = null;
+      }
       sendToRenderer({ type: 'disconnected' });
     });
 
-    state.socket.bind(config.port, config.bindAddress, () => {
+    // Bind to any available local port, then send heartbeats to remote
+    state.socket.bind(0, () => {
       const addr = state.socket?.address();
-      console.log(`[MAVLink] Listening on ${addr?.address}:${addr?.port}`);
+      console.log(`[MAVLink] Connected → ${config.bindAddress}:${config.port} (local port ${addr?.port})`);
       state.connected = true;
       sendToRenderer({ type: 'connected', port: config.port });
+
+      // Send heartbeats every 1s so remote knows we exist and starts streaming
+      sendHeartbeat();
+      state.heartbeatTimer = setInterval(sendHeartbeat, 1000);
     });
   } catch (e) {
     const error = e as Error;
@@ -110,6 +132,10 @@ function connect(config: MavlinkConfig): void {
 }
 
 function disconnect(): void {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
   if (state.socket) {
     try { state.socket.close(); } catch (_) {}
     state.socket = null;
@@ -151,6 +177,10 @@ export function mavlinkWorker({ ipcMain: ipc }: { ipcMain: typeof ipcMain }): vo
 }
 
 export function stopMavlinkWorker(): void {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
   if (state.socket) {
     try { state.socket.close(); } catch (_) {}
     state.socket = null;

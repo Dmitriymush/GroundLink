@@ -35,26 +35,17 @@ export class RotatorFrameBuilder {
   }
 
   /**
-   * Convert UI azimuth (0-359) to protocol azimuth (-164 to +164)
-   * Returns null if in dead zone
+   * Convert UI azimuth (0-359) to protocol azimuth (-180 to +180)
+   * Full 360° range — no dead zone
    *
-   * Matches Pascal ButtonSetAzimutClick:
-   *   0..164   → 0..164    (right half, stays positive)
-   *   165..195 → dead zone (behind antenna)
-   *   196..359 → -164..-1  (left half, subtract 360)
+   *   0..180   → 0..180    (right half)
+   *   181..359 → -179..-1  (left half, subtract 360)
    */
   uiToProtocolAzimuth(uiDegrees: number): number | null {
-    // Dead zone: 165-195 (behind antenna, ~32° gap)
-    if (uiDegrees > 164 && uiDegrees < 196) {
-      return null;
-    }
-
-    // Left half: 196-359 → subtract 360 to get -164..-1
-    if (uiDegrees >= 196) {
+    // Full range — no dead zone
+    if (uiDegrees > 180) {
       return uiDegrees - 360;
     }
-
-    // Right half: 0-164 stays as-is
     return uiDegrees;
   }
 
@@ -108,11 +99,10 @@ export class RotatorFrameBuilder {
   }
 
   /**
-   * Check if UI azimuth is in dead zone (164-196 degrees)
+   * Check if UI azimuth is in dead zone — disabled (full 360°)
    */
-  isInDeadZone(uiAzimuth: number): boolean {
-    const { DEAD_ZONE_START, DEAD_ZONE_END } = ROTATOR_CONSTANTS;
-    return uiAzimuth > DEAD_ZONE_START && uiAzimuth < DEAD_ZONE_END;
+  isInDeadZone(_uiAzimuth: number): boolean {
+    return false;
   }
 
   /**

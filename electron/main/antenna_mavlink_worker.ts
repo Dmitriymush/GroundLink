@@ -1,16 +1,17 @@
 /**
- * Antenna MAVLink Serial Worker
+ * Antenna MAVLink Worker
  *
  * Sends MAV_CMD_DO_SET_SERVO commands to antenna rotator device
- * via serial port (MAVLink protocol).
+ * via serial port OR UDP (MAVLink protocol).
  *
- * Uses the SAME PWM values as the existing UDP rotator protocol:
- * - Azimuth: PWM 540-2400 (same as X field in UDP frame)
- * - Elevation: command 0-95 (same as Y field in UDP frame)
+ * Supports two transports:
+ * - serial: direct USB/RS485 connection
+ * - udp: via mavlink-router/mavp2p UDP endpoint
  *
- * Flow: rotator-store → IPC → this worker → MAVLink serial → antenna device
+ * Flow: rotator-store → IPC → this worker → MAVLink (serial/UDP) → antenna device
  */
 
+import * as dgram from 'dgram';
 import { ipcMain, BrowserWindow } from 'electron';
 import {
   ANTENNA_MAVLINK_IPC_CHANNELS,
@@ -24,10 +25,15 @@ import {
   MavlinkSerialBuilder,
   MavlinkSerialParser,
   MAVLINK_MSG_ID_HEARTBEAT,
+  MAVLINK_MSG_ID_SERVO_OUTPUT_RAW,
+  MAVLINK_MSG_ID_COMMAND_ACK,
 } from '../../src/services/sinelink/mavlink-serial';
 
 interface WorkerState {
-  port: any; // SerialPort instance
+  port: any; // SerialPort instance (serial mode)
+  socket: dgram.Socket | null; // UDP socket (udp mode)
+  remoteAddress: string; // UDP remote address for sending
+  remotePort: number; // UDP remote port for sending
   mavBuilder: MavlinkSerialBuilder;
   mavParser: MavlinkSerialParser;
   config: AntennaMavlinkConfig | null;
@@ -39,6 +45,9 @@ interface WorkerState {
 
 const state: WorkerState = {
   port: null,
+  socket: null,
+  remoteAddress: '',
+  remotePort: 0,
   mavBuilder: new MavlinkSerialBuilder(255, 190),
   mavParser: new MavlinkSerialParser(),
   config: null,
@@ -63,10 +72,23 @@ function sendToRenderer(response: AntennaMavlinkIPCResponse): void {
 }
 
 /**
+ * Write MAVLink frame to current transport (serial or UDP)
+ */
+function writeFrame(frame: Buffer): void {
+  const transport = state.config?.transport ?? 'serial';
+
+  if (transport === 'udp' && state.socket) {
+    state.socket.send(frame, state.remotePort, state.remoteAddress);
+  } else if (transport === 'serial' && state.port) {
+    state.port.write(frame);
+  }
+}
+
+/**
  * Send servo command for azimuth or elevation
  */
 function sendServoCommand(servoChannel: number, pwmValue: number): void {
-  if (!state.port || !state.connected || !state.config) return;
+  if (!state.connected || !state.config) return;
 
   const frame = state.mavBuilder.buildSetServo(
     state.config.targetSystemId,
@@ -76,7 +98,7 @@ function sendServoCommand(servoChannel: number, pwmValue: number): void {
   );
 
   try {
-    state.port.write(frame);
+    writeFrame(frame);
     console.log(`[AntennaMavlink] Servo ch=${servoChannel} pwm=${pwmValue} (${frame.length} bytes)`);
   } catch (e) {
     console.error('[AntennaMavlink] Write failed:', e);
@@ -87,22 +109,55 @@ function sendServoCommand(servoChannel: number, pwmValue: number): void {
  * Send heartbeat to maintain MAVLink connection
  */
 function sendHeartbeat(): void {
-  if (!state.port || !state.connected) return;
+  if (!state.connected) return;
 
   const frame = state.mavBuilder.buildHeartbeat();
   try {
-    state.port.write(frame);
+    writeFrame(frame);
   } catch (_) {}
 }
 
-async function connect(config: AntennaMavlinkConfig): Promise<void> {
-  if (state.port) {
-    await disconnect();
+/**
+ * Handle incoming MAVLink data (from serial or UDP)
+ */
+function handleIncomingData(data: Buffer): void {
+  const frames = state.mavParser.feed(data);
+  for (const frame of frames) {
+    if (frame.msgId === MAVLINK_MSG_ID_HEARTBEAT && frame.payload.length >= 9) {
+      const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
+      const customMode = view.getUint32(0, true);
+      const baseMode = frame.payload[6];
+      sendToRenderer({
+        type: 'heartbeat-received',
+        systemId: frame.systemId,
+        componentId: frame.componentId,
+        trackerMode: customMode,
+        armed: (baseMode & 0x80) !== 0,
+      });
+    } else if (frame.msgId === MAVLINK_MSG_ID_SERVO_OUTPUT_RAW && frame.payload.length >= 8) {
+      const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
+      sendToRenderer({
+        type: 'servo-output',
+        servo1: view.getUint16(4, true),  // offset 4 after time_usec(u32)
+        servo2: view.getUint16(6, true),
+        servo3: frame.payload.length >= 10 ? view.getUint16(8, true) : 0,
+        servo4: frame.payload.length >= 12 ? view.getUint16(10, true) : 0,
+      });
+    } else if (frame.msgId === MAVLINK_MSG_ID_COMMAND_ACK && frame.payload.length >= 3) {
+      const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
+      const command = view.getUint16(0, true);
+      const result = frame.payload[2];
+      console.log(`[AntennaMavlink] ACK: cmd=${command} result=${result}`);
+      sendToRenderer({ type: 'command-ack', command, result });
+    }
   }
+}
 
-  state.config = config;
-  state.mavParser.reset();
+// ============================================================
+// SERIAL TRANSPORT
+// ============================================================
 
+async function connectSerial(config: AntennaMavlinkConfig): Promise<void> {
   try {
     const { SerialPort } = await import('serialport');
 
@@ -112,18 +167,7 @@ async function connect(config: AntennaMavlinkConfig): Promise<void> {
       autoOpen: false,
     });
 
-    state.port.on('data', (data: Buffer) => {
-      const frames = state.mavParser.feed(data);
-      for (const frame of frames) {
-        if (frame.msgId === MAVLINK_MSG_ID_HEARTBEAT) {
-          sendToRenderer({
-            type: 'heartbeat-received',
-            systemId: frame.systemId,
-            componentId: frame.componentId,
-          });
-        }
-      }
-    });
+    state.port.on('data', (data: Buffer) => handleIncomingData(data));
 
     state.port.on('error', (err: Error) => {
       console.error('[AntennaMavlink] Serial error:', err);
@@ -144,11 +188,9 @@ async function connect(config: AntennaMavlinkConfig): Promise<void> {
         return;
       }
 
-      console.log(`[AntennaMavlink] Connected to ${config.portPath} at ${config.baudRate}`);
+      console.log(`[AntennaMavlink] Serial connected to ${config.portPath} at ${config.baudRate}`);
       state.connected = true;
       sendToRenderer({ type: 'connected', portPath: config.portPath });
-
-      // Send heartbeat every 1s to maintain connection
       startHeartbeat();
     });
   } catch (e) {
@@ -158,9 +200,66 @@ async function connect(config: AntennaMavlinkConfig): Promise<void> {
   }
 }
 
+// ============================================================
+// UDP TRANSPORT
+// ============================================================
+
+function connectUdp(config: AntennaMavlinkConfig): void {
+  try {
+    state.socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    state.remoteAddress = config.udpHost;
+    state.remotePort = config.udpPort;
+
+    state.socket.on('message', (msg: Buffer) => handleIncomingData(msg));
+
+    state.socket.on('error', (err: Error) => {
+      console.error('[AntennaMavlink] UDP error:', err);
+      sendToRenderer({ type: 'error', code: 'UDP_ERROR', message: err.message });
+      state.connected = false;
+    });
+
+    state.socket.on('close', () => {
+      console.log('[AntennaMavlink] UDP socket closed');
+      stopHeartbeat();
+      state.connected = false;
+      sendToRenderer({ type: 'disconnected' });
+    });
+
+    // Bind to any available port for receiving responses
+    state.socket.bind(0, () => {
+      const addr = state.socket?.address();
+      console.log(`[AntennaMavlink] UDP connected → ${config.udpHost}:${config.udpPort} (local port ${addr?.port})`);
+      state.connected = true;
+      sendToRenderer({ type: 'connected', portPath: `${config.udpHost}:${config.udpPort}` });
+      startHeartbeat();
+    });
+  } catch (e) {
+    const error = e as Error;
+    console.error('[AntennaMavlink] Failed to create UDP socket:', error);
+    sendToRenderer({ type: 'error', code: 'CONNECT_FAILED', message: error.message });
+  }
+}
+
+// ============================================================
+// COMMON
+// ============================================================
+
+async function connect(config: AntennaMavlinkConfig): Promise<void> {
+  await disconnect();
+
+  state.config = config;
+  state.mavParser.reset();
+
+  if (config.transport === 'udp') {
+    connectUdp(config);
+  } else {
+    await connectSerial(config);
+  }
+}
+
 function startHeartbeat(): void {
   stopHeartbeat();
-  sendHeartbeat(); // Send immediately
+  sendHeartbeat();
   state.heartbeatTimer = setInterval(sendHeartbeat, 1000);
 }
 
@@ -173,10 +272,19 @@ function stopHeartbeat(): void {
 
 async function disconnect(): Promise<void> {
   stopHeartbeat();
+
+  // Close serial
   if (state.port) {
     try { if (state.port.isOpen) state.port.close(); } catch (_) {}
     state.port = null;
   }
+
+  // Close UDP
+  if (state.socket) {
+    try { state.socket.close(); } catch (_) {}
+    state.socket = null;
+  }
+
   state.connected = false;
   state.config = null;
   state.mavParser.reset();
@@ -220,6 +328,32 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
         sendServoCommand(state.config.elevationServoChannel, elevationPwm);
       }
       break;
+    case 'set-mode':
+      if (state.connected && state.config) {
+        const modeFrame = state.mavBuilder.buildSetMode(state.config.targetSystemId, state.config.targetComponentId, request.mode);
+        try {
+          writeFrame(modeFrame);
+          console.log(`[AntennaMavlink] Set mode: ${request.mode}`);
+        } catch (e) { console.error('[AntennaMavlink] Set mode failed:', e); }
+      }
+      break;
+    case 'set-home':
+      if (state.connected && state.config) {
+        const homeFrame = state.mavBuilder.buildSetHome(state.config.targetSystemId, state.config.targetComponentId, request.lat, request.lon, request.alt);
+        try {
+          writeFrame(homeFrame);
+          console.log(`[AntennaMavlink] Set home: ${request.lat}, ${request.lon}, ${request.alt}m`);
+        } catch (e) { console.error('[AntennaMavlink] Set home failed:', e); }
+      }
+      break;
+    case 'forward-position':
+      if (state.connected) {
+        const posFrame = state.mavBuilder.buildGlobalPositionInt(request.lat, request.lon, request.alt, request.relativeAlt, request.hdg);
+        try {
+          writeFrame(posFrame);
+        } catch (e) { console.error('[AntennaMavlink] Forward position failed:', e); }
+      }
+      break;
     case 'list-ports':
       await listPorts();
       break;
@@ -253,6 +387,10 @@ export function stopAntennaMavlinkWorker(): void {
   if (state.port) {
     try { if (state.port.isOpen) state.port.close(); } catch (_) {}
     state.port = null;
+  }
+  if (state.socket) {
+    try { state.socket.close(); } catch (_) {}
+    state.socket = null;
   }
   state.connected = false;
   state.childWindows.clear();

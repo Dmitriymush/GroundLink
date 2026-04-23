@@ -86,20 +86,33 @@ function parseHeartbeat(payload: DataView, systemId: number, componentId: number
   };
 }
 
+function safeGetInt32(view: DataView, offset: number): number {
+  return offset + 4 <= view.byteLength ? view.getInt32(offset, true) : 0;
+}
+function safeGetUint32(view: DataView, offset: number): number {
+  return offset + 4 <= view.byteLength ? view.getUint32(offset, true) : 0;
+}
+function safeGetInt16(view: DataView, offset: number): number {
+  return offset + 2 <= view.byteLength ? view.getInt16(offset, true) : 0;
+}
+function safeGetUint16(view: DataView, offset: number): number {
+  return offset + 2 <= view.byteLength ? view.getUint16(offset, true) : 0;
+}
+
 function parseGlobalPositionInt(payload: DataView, systemId: number, componentId: number): MavlinkGlobalPositionInt {
   return {
     msgId: 33,
     systemId,
     componentId,
-    timeBootMs: payload.getUint32(0, true),
-    lat: payload.getInt32(4, true) / 1e7,
-    lon: payload.getInt32(8, true) / 1e7,
-    alt: payload.getInt32(12, true) / 1000,
-    relativeAlt: payload.getInt32(16, true) / 1000,
-    vx: payload.getInt16(20, true) / 100,
-    vy: payload.getInt16(22, true) / 100,
-    vz: payload.getInt16(24, true) / 100,
-    hdg: payload.getUint16(26, true) / 100,
+    timeBootMs: safeGetUint32(payload, 0),
+    lat: safeGetInt32(payload, 4) / 1e7,
+    lon: safeGetInt32(payload, 8) / 1e7,
+    alt: safeGetInt32(payload, 12) / 1000,
+    relativeAlt: safeGetInt32(payload, 16) / 1000,
+    vx: safeGetInt16(payload, 20) / 100,
+    vy: safeGetInt16(payload, 22) / 100,
+    vz: safeGetInt16(payload, 24) / 100,
+    hdg: safeGetUint16(payload, 26) / 100,
   };
 }
 

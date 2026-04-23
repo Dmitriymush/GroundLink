@@ -95,8 +95,18 @@
 
         <!-- MAVLINK MODE (UDP) -->
         <template v-if="controlMode === 'mavlink'">
-          <!-- Port + Listen + Auto-track on one line -->
+          <!-- Host + Port + Listen + Auto-track -->
           <div class="connection-row">
+            <VTextField
+              v-if="!mavlinkConnected"
+              v-model="mavlinkStore.mavlinkBindAddress"
+              label="Host"
+              placeholder="0.0.0.0"
+              density="compact"
+              hide-details
+              variant="outlined"
+              style="max-width: 120px;"
+            />
             <VTextField
               v-if="!mavlinkConnected"
               v-model.number="mavlinkStore.mavlinkPort"
@@ -113,7 +123,7 @@
               variant="tonal"
               @click="toggleMavlinkConnection"
             >
-              {{ mavlinkConnected ? (mavlinkPositionReceived ? 'Receiving' : 'Waiting...') : 'Listen' }}
+              {{ mavlinkConnected ? (mavlinkPositionReceived ? 'Receiving' : 'Waiting...') : 'Connect' }}
             </VBtn>
             <div class="tracking-inline">
               <VSwitch
@@ -171,6 +181,96 @@
                 type="number"
                 style="max-width: 80px;"
               />
+            </div>
+          </div>
+
+          <!-- Antenna MAVLink output (optional — for MAVLink servo instead of UDP) -->
+          <div class="section-label" style="margin-top: 8px;">Antenna MAVLink (servo output)</div>
+          <div v-if="!sinelinkStore.antennaConnected" class="connection-row">
+            <VBtnToggle
+              v-model="sinelinkStore.antennaTransport"
+              mandatory
+              density="compact"
+              variant="outlined"
+              color="primary"
+              style="height: 30px;"
+            >
+              <VBtn value="serial" size="x-small">Serial</VBtn>
+              <VBtn value="udp" size="x-small">UDP</VBtn>
+            </VBtnToggle>
+          </div>
+          <div class="connection-row">
+            <template v-if="sinelinkStore.antennaTransport === 'serial' && !sinelinkStore.antennaConnected">
+              <VSelect
+                v-model="sinelinkStore.antennaPort"
+                :items="portItems"
+                label="COM Port"
+                density="compact"
+                hide-details
+                variant="outlined"
+                style="max-width: 180px;"
+              />
+              <VSelect
+                v-model.number="sinelinkStore.antennaBaud"
+                :items="baudRateOptions"
+                label="Baud"
+                density="compact"
+                hide-details
+                variant="outlined"
+                style="max-width: 100px;"
+              />
+            </template>
+            <template v-if="sinelinkStore.antennaTransport === 'udp' && !sinelinkStore.antennaConnected">
+              <VTextField
+                v-model="sinelinkStore.antennaUdpHost"
+                label="Host"
+                placeholder="127.0.0.1"
+                density="compact"
+                hide-details
+                variant="outlined"
+                style="max-width: 150px;"
+              />
+              <VTextField
+                v-model.number="sinelinkStore.antennaUdpPort"
+                label="Port"
+                placeholder="14550"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                style="max-width: 90px;"
+              />
+            </template>
+            <VBtn
+              :color="sinelinkStore.antennaConnected ? (sinelinkStore.antennaHeartbeatReceived ? 'success' : 'warning') : 'primary'"
+              :loading="sinelinkStore.antennaConnecting"
+              :disabled="antennaConnectDisabled"
+              size="small"
+              variant="tonal"
+              @click="toggleAntennaConnection"
+            >
+              {{ sinelinkStore.antennaConnected ? (sinelinkStore.antennaHeartbeatReceived ? 'Connected' : 'Waiting...') : 'Connect' }}
+            </VBtn>
+          </div>
+
+          <!-- AntennaTracker controls (when antenna connected) -->
+          <div v-if="sinelinkStore.antennaHeartbeatReceived" class="tracker-controls">
+            <div class="tracker-mode-row">
+              <span class="section-label" style="margin: 0;">Mode: <strong>{{ trackerModeName }}</strong></span>
+              <div class="tracker-mode-buttons">
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 10 ? 'success' : 'default'" @click="sinelinkStore.setTrackerMode(10)">AUTO</VBtn>
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 0 ? 'warning' : 'default'" @click="sinelinkStore.setTrackerMode(0)">MANUAL</VBtn>
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 3 ? 'info' : 'default'" @click="sinelinkStore.setTrackerMode(3)">SERVO TEST</VBtn>
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 1 ? 'error' : 'default'" @click="sinelinkStore.setTrackerMode(1)">STOP</VBtn>
+              </div>
+            </div>
+            <div class="tracker-home-row">
+              <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-home-map-marker" @click="setTrackerHomeFromGcs">
+                Set Home (GCS)
+              </VBtn>
+              <span v-if="sinelinkStore.trackerServo1 || sinelinkStore.trackerServo2" class="servo-info">
+                S1: {{ sinelinkStore.trackerServo1 }} | S2: {{ sinelinkStore.trackerServo2 }}
+              </span>
             </div>
           </div>
 
@@ -260,37 +360,94 @@
 
           <!-- Antenna device (output) -->
           <div class="section-label" style="margin-top: 8px;">Antenna (servo output)</div>
+          <div v-if="!sinelinkStore.antennaConnected" class="connection-row">
+            <VBtnToggle
+              v-model="sinelinkStore.antennaTransport"
+              mandatory
+              density="compact"
+              variant="outlined"
+              color="primary"
+              style="height: 30px;"
+            >
+              <VBtn value="serial" size="x-small">Serial</VBtn>
+              <VBtn value="udp" size="x-small">UDP</VBtn>
+            </VBtnToggle>
+          </div>
           <div class="connection-row">
-            <VSelect
-              v-if="!sinelinkStore.antennaConnected"
-              v-model="sinelinkStore.antennaPort"
-              :items="portItems"
-              label="COM Port"
-              density="compact"
-              hide-details
-              variant="outlined"
-              style="max-width: 200px;"
-            />
-            <VSelect
-              v-if="!sinelinkStore.antennaConnected"
-              v-model.number="sinelinkStore.antennaBaud"
-              :items="baudRateOptions"
-              label="Baud"
-              density="compact"
-              hide-details
-              variant="outlined"
-              style="max-width: 110px;"
-            />
+            <!-- Serial fields -->
+            <template v-if="sinelinkStore.antennaTransport === 'serial' && !sinelinkStore.antennaConnected">
+              <VSelect
+                v-model="sinelinkStore.antennaPort"
+                :items="portItems"
+                label="COM Port"
+                density="compact"
+                hide-details
+                variant="outlined"
+                style="max-width: 180px;"
+              />
+              <VSelect
+                v-model.number="sinelinkStore.antennaBaud"
+                :items="baudRateOptions"
+                label="Baud"
+                density="compact"
+                hide-details
+                variant="outlined"
+                style="max-width: 100px;"
+              />
+            </template>
+            <!-- UDP fields -->
+            <template v-if="sinelinkStore.antennaTransport === 'udp' && !sinelinkStore.antennaConnected">
+              <VTextField
+                v-model="sinelinkStore.antennaUdpHost"
+                label="Host"
+                placeholder="127.0.0.1"
+                density="compact"
+                hide-details
+                variant="outlined"
+                style="max-width: 150px;"
+              />
+              <VTextField
+                v-model.number="sinelinkStore.antennaUdpPort"
+                label="Port"
+                placeholder="14550"
+                density="compact"
+                hide-details
+                variant="outlined"
+                type="number"
+                style="max-width: 90px;"
+              />
+            </template>
             <VBtn
               :color="sinelinkStore.antennaConnected ? (sinelinkStore.antennaHeartbeatReceived ? 'success' : 'warning') : 'primary'"
               :loading="sinelinkStore.antennaConnecting"
-              :disabled="!sinelinkStore.antennaPort && !sinelinkStore.antennaConnected"
+              :disabled="antennaConnectDisabled"
               size="small"
               variant="tonal"
               @click="toggleAntennaConnection"
             >
               {{ sinelinkStore.antennaConnected ? (sinelinkStore.antennaHeartbeatReceived ? 'Connected' : 'Waiting...') : 'Connect' }}
             </VBtn>
+          </div>
+
+          <!-- AntennaTracker controls (when antenna connected in SineLink mode) -->
+          <div v-if="sinelinkStore.antennaHeartbeatReceived" class="tracker-controls">
+            <div class="tracker-mode-row">
+              <span class="section-label" style="margin: 0;">Mode: <strong>{{ trackerModeName }}</strong></span>
+              <div class="tracker-mode-buttons">
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 10 ? 'success' : 'default'" @click="sinelinkStore.setTrackerMode(10)">AUTO</VBtn>
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 0 ? 'warning' : 'default'" @click="sinelinkStore.setTrackerMode(0)">MANUAL</VBtn>
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 3 ? 'info' : 'default'" @click="sinelinkStore.setTrackerMode(3)">SERVO TEST</VBtn>
+                <VBtn size="x-small" variant="tonal" :color="sinelinkStore.trackerMode === 1 ? 'error' : 'default'" @click="sinelinkStore.setTrackerMode(1)">STOP</VBtn>
+              </div>
+            </div>
+            <div class="tracker-home-row">
+              <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-home-map-marker" @click="setTrackerHomeFromGcs">
+                Set Home (GCS)
+              </VBtn>
+              <span v-if="sinelinkStore.trackerServo1 || sinelinkStore.trackerServo2" class="servo-info">
+                S1: {{ sinelinkStore.trackerServo1 }} | S2: {{ sinelinkStore.trackerServo2 }}
+              </span>
+            </div>
           </div>
 
           <!-- GCS Position -->
@@ -469,6 +626,7 @@ import { useRotatorStore } from '@/store/rotator-store';
 import { useMavlinkStore } from '@/store/mavlink-store';
 import { useSinelinkStore } from '@/store/sinelink-store';
 import { RotatorFrameBuilder } from '@/services/rotator';
+import { TRACKER_MODE_NAMES } from '@/services/sinelink/mavlink-serial';
 
 let rotatorStore: ReturnType<typeof useRotatorStore> | null = null;
 try {
@@ -482,12 +640,23 @@ const sinelinkStore = useSinelinkStore();
 const sinelinkFrameBuilder = new RotatorFrameBuilder();
 
 // Ownership: floating window takes priority over main window for sending commands
+// Uses timestamp-based heartbeat to avoid stale locks if floating window crashes
+const FLOATING_HEARTBEAT_KEY = 'antenna-floating-heartbeat';
+const FLOATING_STALE_MS = 3000; // Floating considered dead after 3s without heartbeat
+
 const route = useRoute();
 const isFloatingInstance = computed(() => route.path === '/antenna-floating');
+
+// Reactive tick — re-evaluate isActiveSender every 500ms
+const _heartbeatTick = ref(0);
+setInterval(() => { _heartbeatTick.value++; }, 500);
+
 const isActiveSender = computed(() => {
+  void _heartbeatTick.value; // make computed reactive to ticks
   if (isFloatingInstance.value) return true;
-  // Main window sends only when floating window is NOT open
-  return localStorage.getItem('antenna-floating-active') !== 'true';
+  // Main window: only send when floating window heartbeat is fresh
+  const ts = parseInt(localStorage.getItem(FLOATING_HEARTBEAT_KEY) || '0', 10);
+  return Date.now() - ts > FLOATING_STALE_MS;
 });
 
 interface Props {
@@ -609,6 +778,12 @@ const toggleSinelinkConnection = () => {
   }
 };
 
+const antennaConnectDisabled = computed(() => {
+  if (sinelinkStore.antennaConnected) return false;
+  if (sinelinkStore.antennaTransport === 'serial') return !sinelinkStore.antennaPort;
+  return !sinelinkStore.antennaUdpHost || !sinelinkStore.antennaUdpPort;
+});
+
 const toggleAntennaConnection = () => {
   if (sinelinkStore.antennaConnected) {
     sinelinkStore.disconnectAntenna();
@@ -724,16 +899,42 @@ const toggleMavlinkConnection = () => {
   }
 };
 
+// AntennaTracker helpers
+const trackerModeName = computed(() => {
+  const mode = sinelinkStore.trackerMode;
+  return TRACKER_MODE_NAMES[mode] ?? `UNKNOWN(${mode})`;
+});
+
+const setTrackerHomeFromGcs = () => {
+  // Use GCS position from whichever mode is active
+  const lat = controlMode.value === 'mavlink-serial' ? sinelinkStore.gcsLat : mavlinkStore.gcsLat;
+  const lon = controlMode.value === 'mavlink-serial' ? sinelinkStore.gcsLon : mavlinkStore.gcsLon;
+  const alt = controlMode.value === 'mavlink-serial' ? sinelinkStore.gcsAlt : mavlinkStore.gcsAlt;
+  if (lat === 0 && lon === 0) return;
+  sinelinkStore.setTrackerHome(lat, lon, alt);
+};
+
 const formatDistance = (meters: number): string => {
   if (meters >= 1000) return `${(meters / 1000).toFixed(1)}km`;
   return `${meters.toFixed(0)}m`;
 };
 
-// Auto-tracking: when MAVLink tracking is active, override compass angles
+// Auto-tracking: when MAVLink tracking is active, override compass angles + send servo if antenna connected
 watch(() => mavlinkStore.trackingAngles, (angles) => {
   if (controlMode.value === 'mavlink' && mavlinkStore.isTracking && angles) {
     setAzimuthDegrees(Math.round(angles.azimuth));
     setElevationDegrees(Math.round(angles.elevation));
+
+    // Also send MAVLink servo commands if antenna is connected
+    if (sinelinkStore.antennaConnected) {
+      const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(
+        Math.round(angles.azimuth),
+        Math.round(angles.elevation),
+      );
+      if (pwmValues) {
+        sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+      }
+    }
   }
 }, { deep: true });
 
@@ -754,9 +955,9 @@ watch(() => sinelinkStore.trackingAngles, (angles) => {
   }
 }, { deep: true });
 
-// When in sinelink mode and panel opens, auto-scan ports
+// When in sinelink or mavlink mode, auto-scan ports
 watch(controlMode, (mode) => {
-  if (mode === 'mavlink-serial') {
+  if (mode === 'mavlink-serial' || mode === 'mavlink') {
     sinelinkStore.refreshPorts();
   }
 });
@@ -771,12 +972,23 @@ if (rotatorStore) {
 
     if (!isActiveSender.value || !rotatorStore?.rotatorEnabled || !power.value) return;
 
-    // UDP and MAVLink UDP modes — send via rotator store
-    if (mode === 'udp' || mode === 'mavlink') {
+    // UDP mode — send via rotator store only
+    if (mode === 'udp') {
       rotatorStore.setTargetPosition(az, el);
     }
 
-    // MAVLink Serial mode — send servo commands directly
+    // MAVLink mode — send via rotator store (UDP) + servo if antenna connected
+    if (mode === 'mavlink') {
+      rotatorStore.setTargetPosition(az, el);
+      if (sinelinkStore.antennaConnected) {
+        const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(az, el);
+        if (pwmValues) {
+          sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+        }
+      }
+    }
+
+    // SineLink mode — send servo commands directly
     if (mode === 'mavlink-serial') {
       if (sinelinkStore.antennaConnected) {
         const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(az, el);
@@ -816,16 +1028,24 @@ const toggleRotatorConnection = () => {
   }
 };
 
-const isInDeadZone = computed(() => {
-  const az = azimuthDegrees.value;
-  return az > 164 && az < 196;
-});
+const isInDeadZone = computed(() => false);
+
+// Floating window writes heartbeat every second so main window knows it's alive
+let floatingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
   document.addEventListener('keydown', handleKeyDown);
   document.addEventListener('keyup', handleKeyUp);
+
+  // Cleanup legacy stale flag from previous version
+  localStorage.removeItem('antenna-floating-active');
+
   if (isFloatingInstance.value) {
-    localStorage.setItem('antenna-floating-active', 'true');
+    // Write heartbeat immediately + every 1s
+    localStorage.setItem(FLOATING_HEARTBEAT_KEY, Date.now().toString());
+    floatingHeartbeatTimer = setInterval(() => {
+      localStorage.setItem(FLOATING_HEARTBEAT_KEY, Date.now().toString());
+    }, 1000);
   }
 });
 
@@ -833,8 +1053,13 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeyDown);
   document.removeEventListener('keyup', handleKeyUp);
   stopContinuousChange();
+
   if (isFloatingInstance.value) {
-    localStorage.removeItem('antenna-floating-active');
+    if (floatingHeartbeatTimer) {
+      clearInterval(floatingHeartbeatTimer);
+      floatingHeartbeatTimer = null;
+    }
+    localStorage.removeItem(FLOATING_HEARTBEAT_KEY);
   }
 });
 </script>
@@ -935,6 +1160,41 @@ onBeforeUnmount(() => {
 .gcs-inputs > * { flex: 1; }
 
 .mavlink-status { margin-top: 6px; }
+
+.tracker-controls {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(76, 175, 80, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(76, 175, 80, 0.2);
+}
+
+.tracker-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tracker-mode-buttons {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tracker-home-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.servo-info {
+  font-size: 11px;
+  color: rgba(128, 128, 128, 0.7);
+  font-family: monospace;
+}
 
 .tracking-icon {
   animation: pulse-dot 1s ease-in-out infinite;

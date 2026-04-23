@@ -17,18 +17,49 @@ const MAVLINK_V2_HEADER_LEN = 10; // v2: STX + len + incompat + compat + seq + s
 
 // Message IDs
 export const MAVLINK_MSG_ID_HEARTBEAT = 0;
+export const MAVLINK_MSG_ID_GLOBAL_POSITION_INT = 33;
+export const MAVLINK_MSG_ID_SERVO_OUTPUT_RAW = 36;
+export const MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT = 62;
 export const MAVLINK_MSG_ID_COMMAND_LONG = 76;
+export const MAVLINK_MSG_ID_COMMAND_ACK = 77;
 export const MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL = 110;
 
 // CRC extras for each message type (from MAVLink spec)
 const CRC_EXTRAS: Record<number, number> = {
   [MAVLINK_MSG_ID_HEARTBEAT]: 50,
+  [MAVLINK_MSG_ID_GLOBAL_POSITION_INT]: 104,
+  [MAVLINK_MSG_ID_SERVO_OUTPUT_RAW]: 222,
+  [MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT]: 183,
   [MAVLINK_MSG_ID_COMMAND_LONG]: 152,
+  [MAVLINK_MSG_ID_COMMAND_ACK]: 143,
   [MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL]: 84,
 };
 
 // MAVLink commands
+export const MAV_CMD_DO_SET_MODE = 176;
+export const MAV_CMD_DO_SET_HOME = 179;
 export const MAV_CMD_DO_SET_SERVO = 183;
+
+// ArduPilot AntennaTracker modes
+export const TRACKER_MODE = {
+  MANUAL: 0,
+  STOP: 1,
+  SCAN: 2,
+  SERVO_TEST: 3,
+  AUTO: 10,
+  INITIALISING: 16,
+} as const;
+
+export type TrackerModeName = keyof typeof TRACKER_MODE;
+
+export const TRACKER_MODE_NAMES: Record<number, TrackerModeName> = {
+  0: 'MANUAL',
+  1: 'STOP',
+  2: 'SCAN',
+  3: 'SERVO_TEST',
+  10: 'AUTO',
+  16: 'INITIALISING',
+};
 
 /**
  * X.25 CRC checksum (used by MAVLink)
@@ -62,28 +93,33 @@ export class MavlinkSerialBuilder {
   }
 
   /**
-   * Build a MAVLink v1 frame
+   * Build a MAVLink v2 frame (0xFD)
+   * v2 header: [0xFD] [len] [incompat_flags] [compat_flags] [seq] [sysid] [compid] [msgid_lo] [msgid_mid] [msgid_hi]
    */
   buildFrame(msgId: number, payload: Uint8Array): Buffer {
-    const frame = Buffer.alloc(MAVLINK_HEADER_LEN + payload.length + 2);
+    const frame = Buffer.alloc(MAVLINK_V2_HEADER_LEN + payload.length + 2);
 
-    // Header
-    frame[0] = MAVLINK_STX_V1;
+    // v2 Header
+    frame[0] = MAVLINK_STX_V2;
     frame[1] = payload.length;
-    frame[2] = this.seq++ & 0xFF;
-    frame[3] = this.systemId;
-    frame[4] = this.componentId;
-    frame[5] = msgId;
+    frame[2] = 0; // incompat_flags
+    frame[3] = 0; // compat_flags
+    frame[4] = this.seq++ & 0xFF;
+    frame[5] = this.systemId;
+    frame[6] = this.componentId;
+    frame[7] = msgId & 0xFF;        // msgid low
+    frame[8] = (msgId >> 8) & 0xFF;  // msgid mid
+    frame[9] = (msgId >> 16) & 0xFF; // msgid high
 
     // Payload
-    payload.forEach((b, i) => { frame[6 + i] = b; });
+    payload.forEach((b, i) => { frame[MAVLINK_V2_HEADER_LEN + i] = b; });
 
-    // CRC (over header[1..5] + payload)
+    // CRC (over header[1..9] + payload)
     const crcExtra = CRC_EXTRAS[msgId] ?? 0;
-    const crcData = frame.subarray(1, 6 + payload.length);
+    const crcData = frame.subarray(1, MAVLINK_V2_HEADER_LEN + payload.length);
     const crc = crcCalculate(crcData, crcExtra);
-    frame[6 + payload.length] = crc & 0xFF;
-    frame[7 + payload.length] = (crc >> 8) & 0xFF;
+    frame[MAVLINK_V2_HEADER_LEN + payload.length] = crc & 0xFF;
+    frame[MAVLINK_V2_HEADER_LEN + payload.length + 1] = (crc >> 8) & 0xFF;
 
     return frame;
   }
@@ -105,36 +141,68 @@ export class MavlinkSerialBuilder {
 
   /**
    * Build COMMAND_LONG message for DO_SET_SERVO
-   * Used to control antenna servos
+   * Used to control antenna servos in SERVO_TEST mode
    */
-  buildSetServo(
-    targetSystem: number,
-    targetComponent: number,
-    servoChannel: number,
-    pwmValue: number,
+  buildSetServo(targetSystem: number, targetComponent: number, servoChannel: number, pwmValue: number): Buffer {
+    return this.buildCommandLong(targetSystem, targetComponent, MAV_CMD_DO_SET_SERVO, servoChannel, pwmValue);
+  }
+
+  /**
+   * Build COMMAND_LONG for DO_SET_MODE — switch AntennaTracker mode
+   * Modes: MANUAL=0, STOP=1, SCAN=2, SERVO_TEST=3, AUTO=10, INITIALISING=16
+   */
+  buildSetMode(targetSystem: number, targetComponent: number, mode: number): Buffer {
+    return this.buildCommandLong(targetSystem, targetComponent, MAV_CMD_DO_SET_MODE, mode);
+  }
+
+  /**
+   * Build COMMAND_LONG for DO_SET_HOME — set tracker home position (where antenna is)
+   */
+  buildSetHome(targetSystem: number, targetComponent: number, lat: number, lon: number, altM: number): Buffer {
+    return this.buildCommandLong(targetSystem, targetComponent, MAV_CMD_DO_SET_HOME, 0, 0, 0, 0, lat, lon, altM);
+  }
+
+  /**
+   * Build GLOBAL_POSITION_INT message (msgId=33) — forward drone position to tracker
+   * In AUTO mode the tracker uses this to calculate bearing/elevation
+   */
+  buildGlobalPositionInt(lat: number, lon: number, altMsl: number, relativeAlt: number, hdg: number): Buffer {
+    const payload = Buffer.alloc(28);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+
+    view.setUint32(0, Date.now() & 0xFFFFFFFF, true); // time_boot_ms
+    view.setInt32(4, Math.round(lat * 1e7), true);     // lat (degE7)
+    view.setInt32(8, Math.round(lon * 1e7), true);     // lon (degE7)
+    view.setInt32(12, Math.round(altMsl * 1000), true); // alt MSL (mm)
+    view.setInt32(16, Math.round(relativeAlt * 1000), true); // relative_alt (mm)
+    view.setInt16(20, 0, true);  // vx (cm/s)
+    view.setInt16(22, 0, true);  // vy
+    view.setInt16(24, 0, true);  // vz
+    view.setUint16(26, Math.round(hdg * 100) & 0xFFFF, true); // hdg (cdeg)
+
+    return this.buildFrame(MAVLINK_MSG_ID_GLOBAL_POSITION_INT, payload);
+  }
+
+  /**
+   * Generic COMMAND_LONG builder
+   */
+  private buildCommandLong(
+    targetSystem: number, targetComponent: number, command: number,
+    p1 = 0, p2 = 0, p3 = 0, p4 = 0, p5 = 0, p6 = 0, p7 = 0,
   ): Buffer {
-    // COMMAND_LONG payload: 7 floats (param1-7) + command(u16) + target_system(u8) + target_component(u8) + confirmation(u8)
-    // Total: 33 bytes
     const payload = Buffer.alloc(33);
     const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
 
-    // param1: servo number (float32 LE)
-    view.setFloat32(0, servoChannel, true);
-    // param2: PWM value (float32 LE)
-    view.setFloat32(4, pwmValue, true);
-    // param3-7: 0
-    view.setFloat32(8, 0, true);
-    view.setFloat32(12, 0, true);
-    view.setFloat32(16, 0, true);
-    view.setFloat32(20, 0, true);
-    view.setFloat32(24, 0, true);
-    // command: MAV_CMD_DO_SET_SERVO (uint16 LE)
-    view.setUint16(28, MAV_CMD_DO_SET_SERVO, true);
-    // target_system
+    view.setFloat32(0, p1, true);
+    view.setFloat32(4, p2, true);
+    view.setFloat32(8, p3, true);
+    view.setFloat32(12, p4, true);
+    view.setFloat32(16, p5, true);
+    view.setFloat32(20, p6, true);
+    view.setFloat32(24, p7, true);
+    view.setUint16(28, command, true);
     payload[30] = targetSystem;
-    // target_component
     payload[31] = targetComponent;
-    // confirmation
     payload[32] = 0;
 
     return this.buildFrame(MAVLINK_MSG_ID_COMMAND_LONG, payload);

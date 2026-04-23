@@ -39,8 +39,11 @@ export const useSinelinkStore = defineStore('sinelink', () => {
   const sinelinkPollInterval = useStorage<number>('sinelink-poll-interval', DEFAULT_SINELINK_CONFIG.pollIntervalMs);
 
   // Antenna MAVLink (output — servo commands)
+  const antennaTransport = useStorage<'serial' | 'udp'>('antenna-mavlink-transport', DEFAULT_ANTENNA_MAVLINK_CONFIG.transport);
   const antennaPort = useStorage<string>('antenna-mavlink-port', DEFAULT_ANTENNA_MAVLINK_CONFIG.portPath);
   const antennaBaud = useStorage<number>('antenna-mavlink-baud', DEFAULT_ANTENNA_MAVLINK_CONFIG.baudRate);
+  const antennaUdpHost = useStorage<string>('antenna-mavlink-udp-host', DEFAULT_ANTENNA_MAVLINK_CONFIG.udpHost);
+  const antennaUdpPort = useStorage<number>('antenna-mavlink-udp-port', DEFAULT_ANTENNA_MAVLINK_CONFIG.udpPort);
   const antennaTargetSys = useStorage<number>('antenna-mavlink-target-sys', DEFAULT_ANTENNA_MAVLINK_CONFIG.targetSystemId);
   const antennaTargetComp = useStorage<number>('antenna-mavlink-target-comp', DEFAULT_ANTENNA_MAVLINK_CONFIG.targetComponentId);
   const antennaAzServo = useStorage<number>('antenna-mavlink-az-servo', DEFAULT_ANTENNA_MAVLINK_CONFIG.azimuthServoChannel);
@@ -68,6 +71,13 @@ export const useSinelinkStore = defineStore('sinelink', () => {
   const antennaConnecting = ref(false);
   const antennaError = ref<string | null>(null);
   const antennaHeartbeatReceived = ref(false);
+
+  // AntennaTracker state (from heartbeat)
+  const trackerMode = ref<number>(-1); // -1 = unknown
+  const trackerArmed = ref(false);
+  const trackerServo1 = ref(0);
+  const trackerServo2 = ref(0);
+  const lastCommandAck = ref<{ command: number; result: number } | null>(null);
 
   // Drone position
   const dronePosition = ref<GeoPosition | null>(null);
@@ -173,6 +183,17 @@ export const useSinelinkStore = defineStore('sinelink', () => {
 
       case 'heartbeat-received':
         antennaHeartbeatReceived.value = true;
+        trackerMode.value = response.trackerMode;
+        trackerArmed.value = response.armed;
+        break;
+
+      case 'servo-output':
+        trackerServo1.value = response.servo1;
+        trackerServo2.value = response.servo2;
+        break;
+
+      case 'command-ack':
+        lastCommandAck.value = { command: response.command, result: response.result };
         break;
 
       case 'ports':
@@ -233,8 +254,11 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     antennaError.value = null;
 
     const config: AntennaMavlinkConfig = {
+      transport: antennaTransport.value,
       portPath: antennaPort.value,
       baudRate: antennaBaud.value,
+      udpHost: antennaUdpHost.value,
+      udpPort: antennaUdpPort.value,
       sendIntervalMs: 500,
       targetSystemId: antennaTargetSys.value,
       targetComponentId: antennaTargetComp.value,
@@ -269,6 +293,26 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     gcsAlt.value = alt;
   }
 
+  // AntennaTracker commands
+  function setTrackerMode(mode: number): void {
+    if (!antennaConnected.value) return;
+    sendAntennaRequest({ type: 'set-mode', mode });
+  }
+
+  function setTrackerHome(lat: number, lon: number, alt: number): void {
+    if (!antennaConnected.value) return;
+    sendAntennaRequest({ type: 'set-home', lat, lon, alt });
+  }
+
+  /**
+   * Forward drone position to AntennaTracker (for AUTO mode)
+   * Tracker will calculate bearing/elevation itself
+   */
+  function forwardDronePosition(lat: number, lon: number, alt: number, relativeAlt: number, hdg: number): void {
+    if (!antennaConnected.value) return;
+    sendAntennaRequest({ type: 'forward-position', lat, lon, alt, relativeAlt, hdg });
+  }
+
   // ============================================================
   // INITIALIZATION
   // ============================================================
@@ -294,8 +338,11 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     sinelinkPollInterval,
 
     // Antenna config (persisted)
+    antennaTransport,
     antennaPort,
     antennaBaud,
+    antennaUdpHost,
+    antennaUdpPort,
     antennaTargetSys,
     antennaTargetComp,
     antennaAzServo,
@@ -318,6 +365,13 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     antennaError,
     antennaHeartbeatReceived,
 
+    // AntennaTracker state
+    trackerMode,
+    trackerArmed,
+    trackerServo1,
+    trackerServo2,
+    lastCommandAck,
+
     // Drone telemetry
     dronePosition,
     positionValid,
@@ -339,6 +393,9 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     connectAntenna,
     disconnectAntenna,
     sendServoPosition,
+    setTrackerMode,
+    setTrackerHome,
+    forwardDronePosition,
     refreshPorts,
     setGcsPosition,
   };

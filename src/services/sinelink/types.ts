@@ -54,10 +54,16 @@ export const SINELINK_IPC_CHANNELS = {
 // ============================================================
 
 export interface AntennaMavlinkConfig {
-  /** Serial port path for antenna device */
+  /** Transport type: 'serial' or 'udp' */
+  transport: 'serial' | 'udp';
+  /** Serial port path for antenna device (serial mode) */
   portPath: string;
-  /** Baud rate (default 115200) */
+  /** Baud rate (serial mode, default 57600) */
   baudRate: number;
+  /** UDP host (udp mode, e.g. '127.0.0.1') */
+  udpHost: string;
+  /** UDP port (udp mode, e.g. 14550) */
+  udpPort: number;
   /** Send interval in ms (default 500, matches rotator UDP interval) */
   sendIntervalMs: number;
   /** MAVLink target system ID (default 2 — ArduPilot antenna tracker) */
@@ -71,8 +77,11 @@ export interface AntennaMavlinkConfig {
 }
 
 export const DEFAULT_ANTENNA_MAVLINK_CONFIG: AntennaMavlinkConfig = {
+  transport: 'serial',
   portPath: '',
   baudRate: 57600,
+  udpHost: '127.0.0.1',
+  udpPort: 14550,
   sendIntervalMs: 500,
   targetSystemId: 2,
   targetComponentId: 0,
@@ -84,12 +93,17 @@ export type AntennaMavlinkIPCRequest =
   | { type: 'connect'; config: AntennaMavlinkConfig }
   | { type: 'disconnect' }
   | { type: 'send-servo'; azimuthPwm: number; elevationCmd: number }
+  | { type: 'set-mode'; mode: number }
+  | { type: 'set-home'; lat: number; lon: number; alt: number }
+  | { type: 'forward-position'; lat: number; lon: number; alt: number; relativeAlt: number; hdg: number }
   | { type: 'list-ports' };
 
 export type AntennaMavlinkIPCResponse =
   | { type: 'connected'; portPath: string }
   | { type: 'disconnected' }
-  | { type: 'heartbeat-received'; systemId: number; componentId: number }
+  | { type: 'heartbeat-received'; systemId: number; componentId: number; trackerMode: number; armed: boolean }
+  | { type: 'servo-output'; servo1: number; servo2: number; servo3: number; servo4: number }
+  | { type: 'command-ack'; command: number; result: number }
   | { type: 'ports'; ports: SerialPortInfo[] }
   | { type: 'error'; code: string; message: string };
 
