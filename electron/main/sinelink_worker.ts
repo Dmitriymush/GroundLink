@@ -27,13 +27,124 @@ import {
   MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL,
 } from '../../src/services/sinelink/mavlink-serial';
 
-// Protobuf stubs — import encode/decode
-import {
-  Object as LinkObject,
-  Header,
-  Type,
-  viPose,
-} from '../../wire/build/sine.wire/stubs/link_v1';
+// Inline protobuf encoding for viGetPose request
+// Instead of importing TS stubs (which need @bufbuild/protobuf and cause Rollup issues),
+// we build the minimal protobuf bytes manually.
+// Object { header { type: viGetPose(0x4C=76) } }
+// Protobuf wire format:
+//   field 1 (header) = tag 0x0A, length-delimited
+//   Header { field 1 (type) = tag 0x08, varint 76 }
+const VIGETPOSE_PROTO_REQUEST = new Uint8Array([
+  0x0A, 0x02,  // field 1 (header), length 2
+  0x08, 0x4C,  // field 1 (type), varint 76 (viGetPose)
+]);
+
+const VIGETPOSE_TYPE = 0x4C; // 76
+
+/**
+ * Parse viPose from protobuf Object response (minimal parser)
+ * Looks for: header.type == 0x4C and pose fields (field 36 in Object)
+ */
+function parsePoseFromProto(protoBytes: Uint8Array): { lat: number; lon: number; alt: number; valid: boolean; confidence: number; ts: number } | null {
+  try {
+    // Simple protobuf parser — find pose submessage (field 36, tag = 36<<3|2 = 290 = 0x0122)
+    // Then parse viPose fields inside it
+    let offset = 0;
+    const view = new DataView(protoBytes.buffer, protoBytes.byteOffset, protoBytes.byteLength);
+
+    // First check header type
+    // Skip through fields looking for field 36 (pose)
+    let poseStart = -1;
+    let poseEnd = -1;
+
+    while (offset < protoBytes.length) {
+      const tag = readVarint(protoBytes, offset);
+      if (tag === null) break;
+      offset = tag.newOffset;
+
+      const fieldNum = tag.value >>> 3;
+      const wireType = tag.value & 0x07;
+
+      if (wireType === 2) { // length-delimited
+        const len = readVarint(protoBytes, offset);
+        if (len === null) break;
+        offset = len.newOffset;
+
+        if (fieldNum === 36) { // pose field in Object
+          poseStart = offset;
+          poseEnd = offset + len.value;
+        }
+        offset += len.value;
+      } else if (wireType === 0) { // varint
+        const val = readVarint(protoBytes, offset);
+        if (val === null) break;
+        offset = val.newOffset;
+      } else if (wireType === 5) { // 32-bit
+        offset += 4;
+      } else if (wireType === 1) { // 64-bit
+        offset += 8;
+      } else {
+        break;
+      }
+    }
+
+    if (poseStart < 0 || poseEnd < 0) return null;
+
+    // Parse viPose fields
+    let ts = 0, lat = 0, lon = 0, alt = 0, valid = false, confidence = 0;
+    offset = poseStart;
+
+    while (offset < poseEnd) {
+      const tag = readVarint(protoBytes, offset);
+      if (tag === null) break;
+      offset = tag.newOffset;
+
+      const fieldNum = tag.value >>> 3;
+      const wireType = tag.value & 0x07;
+
+      if (wireType === 0) { // varint
+        const val = readVarint(protoBytes, offset);
+        if (val === null) break;
+        offset = val.newOffset;
+        if (fieldNum === 1) ts = val.value;
+        else if (fieldNum === 4) alt = val.value;
+        else if (fieldNum === 8) valid = val.value !== 0;
+        else if (fieldNum === 10) confidence = val.value;
+      } else if (wireType === 5) { // 32-bit (float)
+        if (offset + 4 > protoBytes.length) break;
+        const f = new DataView(protoBytes.buffer, protoBytes.byteOffset + offset, 4).getFloat32(0, true);
+        offset += 4;
+        if (fieldNum === 2) lat = f;
+        else if (fieldNum === 3) lon = f;
+      } else if (wireType === 2) { // length-delimited (skip)
+        const len = readVarint(protoBytes, offset);
+        if (len === null) break;
+        offset = len.newOffset + len.value;
+      } else if (wireType === 1) { // 64-bit (skip)
+        offset += 8;
+      } else {
+        break;
+      }
+    }
+
+    return { lat, lon, alt, valid, confidence, ts };
+  } catch {
+    return null;
+  }
+}
+
+function readVarint(buf: Uint8Array, offset: number): { value: number; newOffset: number } | null {
+  let value = 0;
+  let shift = 0;
+  while (offset < buf.length) {
+    const byte = buf[offset++];
+    value |= (byte & 0x7F) << shift;
+    if ((byte & 0x80) === 0) return { value, newOffset: offset };
+    shift += 7;
+    if (shift > 35) return null;
+  }
+  return null;
+}
 
 interface WorkerState {
   port: any; // SerialPort instance (dynamic import)
@@ -80,11 +191,8 @@ function sendToRenderer(response: SinelinkIPCResponse): void {
  */
 function buildPoseRequest(): Buffer | null {
   try {
-    // 1. Create protobuf request
-    const req: LinkObject = {
-      header: { type: Type.viGetPose, size: 0, isRemote: false, objIndex: 0 },
-    };
-    const protoBytes = LinkObject.encode(req).finish();
+    // 1. Use pre-built protobuf request bytes
+    const protoBytes = VIGETPOSE_PROTO_REQUEST;
 
     // 2. Convert proto → wire binary
     const wireBytes = state.wireBridge.protoToLink(protoBytes);
@@ -97,7 +205,7 @@ function buildPoseRequest(): Buffer | null {
       0, // UUID = 0 (any device)
     );
 
-    // 4. Build MAVLink v1 FTP frame
+    // 4. Build MAVLink FTP frame
     return state.mavBuilder.buildFtpMessage(
       SINE_MAVLINK_NET,
       SINE_MAVLINK_SYS_ID,
@@ -121,21 +229,21 @@ function parsePoseResponse(ftpPayloadBytes: Buffer): void {
     // 2. Convert wire binary → proto
     const protoBytes = state.wireBridge.linkToProto(raw);
 
-    // 3. Decode protobuf
-    const resp = LinkObject.decode(protoBytes);
+    // 3. Parse protobuf using inline parser (no external stubs dependency)
+    const pose = parsePoseFromProto(protoBytes);
 
-    if (resp.pose) {
+    if (pose) {
       sendToRenderer({
         type: 'position',
-        lat: resp.pose.lat,
-        lon: resp.pose.lon,
-        alt: resp.pose.alt,
-        valid: resp.pose.valid,
-        confidence: resp.pose.confidence,
-        ts: resp.pose.ts,
+        lat: pose.lat,
+        lon: pose.lon,
+        alt: pose.alt,
+        valid: pose.valid,
+        confidence: pose.confidence,
+        ts: pose.ts,
       });
-    } else if (resp.header && resp.header.type !== Type.viGetPose) {
-      console.warn('[Sinelink] Unexpected response type:', resp.header.type);
+    } else {
+      console.warn('[Sinelink] Could not parse pose from response');
     }
   } catch (e) {
     console.error('[Sinelink] Failed to parse response:', e);
