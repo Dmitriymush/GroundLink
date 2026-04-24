@@ -925,8 +925,8 @@ watch(() => mavlinkStore.trackingAngles, (angles) => {
     setAzimuthDegrees(Math.round(angles.azimuth));
     setElevationDegrees(Math.round(angles.elevation));
 
-    // Also send MAVLink servo commands if antenna is connected
-    if (sinelinkStore.antennaConnected) {
+    // Also send MAVLink servo commands if antenna is in SERVO_TEST mode
+    if (sinelinkStore.antennaConnected && sinelinkStore.trackerMode === 3) {
       const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(
         Math.round(angles.azimuth),
         Math.round(angles.elevation),
@@ -977,27 +977,26 @@ if (rotatorStore) {
       rotatorStore.setTargetPosition(az, el);
     }
 
-    // MAVLink mode — send via rotator store (UDP) + servo if antenna connected
-    if (mode === 'mavlink') {
-      rotatorStore.setTargetPosition(az, el);
-      if (sinelinkStore.antennaConnected) {
-        const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(az, el);
-        if (pwmValues) {
-          sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
-        }
+    // MAVLink / SineLink mode — send commands based on tracker mode
+    if (mode === 'mavlink' || mode === 'mavlink-serial') {
+      if (mode === 'mavlink') {
+        rotatorStore.setTargetPosition(az, el);
       }
-    }
 
-    // SineLink mode — send servo commands directly
-    if (mode === 'mavlink-serial') {
       if (sinelinkStore.antennaConnected) {
+        const tMode = sinelinkStore.trackerMode;
         const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(az, el);
-        console.log(`[AzimuthCtrl] Sending servo: pwm=`, pwmValues);
         if (pwmValues) {
-          sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+          if (tMode === 3) {
+            // SERVO_TEST — send DO_SET_SERVO
+            sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+          } else if (tMode === 0) {
+            // MANUAL — send RC_CHANNELS_OVERRIDE
+            const elevationPwm = Math.round(1000 + (pwmValues.elevationCmd / 95) * 1000);
+            sinelinkStore.sendRcOverride(pwmValues.azimuthPwm, elevationPwm);
+          }
+          // AUTO (10), STOP (1) — don't send anything, ArduPilot handles it
         }
-      } else {
-        console.log(`[AzimuthCtrl] Antenna not connected, skipping servo send`);
       }
     }
   }, { immediate: true });

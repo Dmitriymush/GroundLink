@@ -41,6 +41,11 @@ interface WorkerState {
   started: boolean;
   connected: boolean;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
+  // RC override continuous send
+  rcOverrideTimer: ReturnType<typeof setInterval> | null;
+  rcOverrideAz: number;  // current RC azimuth PWM (1000-2000)
+  rcOverrideEl: number;  // current RC elevation PWM (1000-2000)
+  rcOverrideActive: boolean;
 }
 
 const state: WorkerState = {
@@ -55,6 +60,10 @@ const state: WorkerState = {
   started: false,
   connected: false,
   heartbeatTimer: null,
+  rcOverrideTimer: null,
+  rcOverrideAz: 1500,
+  rcOverrideEl: 1500,
+  rcOverrideActive: false,
 };
 
 function sendToRenderer(response: AntennaMavlinkIPCResponse): void {
@@ -106,7 +115,7 @@ function sendServoCommand(servoChannel: number, pwmValue: number): void {
 }
 
 /**
- * Send heartbeat to maintain MAVLink connection
+ * Send heartbeat to maintain MAVLink connection (required for ARM to stay)
  */
 function sendHeartbeat(): void {
   if (!state.connected) return;
@@ -115,6 +124,105 @@ function sendHeartbeat(): void {
   try {
     writeFrame(frame);
   } catch (_) {}
+}
+
+/**
+ * Send current RC override values (called every 100ms when active)
+ */
+function sendRcOverrideTick(): void {
+  if (!state.connected || !state.config || !state.rcOverrideActive) return;
+
+  const frame = state.mavBuilder.buildRcOverride(
+    state.config.targetSystemId, state.config.targetComponentId,
+    state.rcOverrideAz, state.rcOverrideEl,
+  );
+  try { writeFrame(frame); } catch (_) {}
+}
+
+function startRcOverride(): void {
+  if (state.rcOverrideTimer) return;
+  state.rcOverrideActive = true;
+  state.rcOverrideTimer = setInterval(sendRcOverrideTick, 100); // 10Hz
+  console.log('[AntennaMavlink] RC override started (10Hz)');
+}
+
+function stopRcOverride(): void {
+  state.rcOverrideActive = false;
+  if (state.rcOverrideTimer) {
+    clearInterval(state.rcOverrideTimer);
+    state.rcOverrideTimer = null;
+  }
+  // Send release on all channels
+  if (state.connected && state.config) {
+    const frame = state.mavBuilder.buildRcOverride(
+      state.config.targetSystemId, state.config.targetComponentId,
+      65535, 65535,
+    );
+    try { writeFrame(frame); } catch (_) {}
+  }
+  console.log('[AntennaMavlink] RC override stopped');
+}
+
+/**
+ * Send ARM command
+ */
+function sendArm(): void {
+  if (!state.connected || !state.config) return;
+  const frame = state.mavBuilder.buildArm(
+    state.config.targetSystemId, state.config.targetComponentId, true
+  );
+  try { writeFrame(frame); } catch (_) {}
+}
+
+/**
+ * Send ARM + SET_MODE once
+ */
+function sendArmAndModeOnce(targetSystem: number, compId: number, mode: number): void {
+  // ARM
+  const armFrame = state.mavBuilder.buildArm(targetSystem, compId, true);
+  try { writeFrame(armFrame); } catch (_) {}
+  // SET_MODE
+  const modeFrame = state.mavBuilder.buildSetMode(targetSystem, compId, mode);
+  try { writeFrame(modeFrame); } catch (_) {}
+}
+
+/**
+ * Reliable SET_MODE — ARM + SET_MODE via STOP transition.
+ * ArduPilot AntennaTracker requires going through STOP for most transitions.
+ * Sends: ARM → STOP → ARM → target_mode (repeated for UDP reliability)
+ */
+async function setModeReliable(targetSystem: number, mode: number): Promise<void> {
+  if (!state.connected || !state.config) return;
+  const compId = state.config.targetComponentId;
+
+  console.log(`[AntennaMavlink] Set mode: ${mode}`);
+
+  if (mode === 1) {
+    // STOP — direct, always works
+    for (let i = 0; i < 5; i++) {
+      sendArmAndModeOnce(targetSystem, compId, 1);
+      await sleep(100);
+    }
+    return;
+  }
+
+  // For all other modes: STOP first, then target
+  // Step 1: STOP
+  for (let i = 0; i < 3; i++) {
+    sendArmAndModeOnce(targetSystem, compId, 1);
+    await sleep(100);
+  }
+  await sleep(500);
+
+  // Step 2: Target mode
+  for (let i = 0; i < 5; i++) {
+    sendArmAndModeOnce(targetSystem, compId, mode);
+    await sleep(100);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -272,6 +380,7 @@ function stopHeartbeat(): void {
 
 async function disconnect(): Promise<void> {
   stopHeartbeat();
+  stopRcOverride();
 
   // Close serial
   if (state.port) {
@@ -322,19 +431,32 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
       break;
     case 'send-servo':
       if (state.config) {
-        sendServoCommand(state.config.azimuthServoChannel, request.azimuthPwm);
-        // Convert elevation command (0-95) to PWM (1000-2000)
-        const elevationPwm = Math.round(1000 + (request.elevationCmd / 95) * 1000);
+        // Map azimuth from internal range (540-2400) to servo range (350-2350), inverted
+        const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
+        const azPwm = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
+        sendServoCommand(state.config.azimuthServoChannel, azPwm);
+        // Map elevation from cmd (0-95) to servo range (900-2200)
+        const elevationPwm = Math.round(900 + (request.elevationCmd / 95) * 1300);
         sendServoCommand(state.config.elevationServoChannel, elevationPwm);
+      }
+      break;
+    case 'send-rc-override':
+      if (state.connected && state.config) {
+        // Map azimuth from servo range (540-2400) to RC yaw range (350-2350), inverted (same as servo)
+        const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
+        state.rcOverrideAz = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
+        // Map elevation from (1000-2000) to RC pitch range (900-2200)
+        const elNorm = (request.elevationPwm - 1000) / 1000; // 0..1
+        state.rcOverrideEl = Math.round(900 + elNorm * 1300); // 900..2200
+        // Start continuous RC override loop if not already running
+        if (!state.rcOverrideActive) startRcOverride();
       }
       break;
     case 'set-mode':
       if (state.connected && state.config) {
-        const modeFrame = state.mavBuilder.buildSetMode(state.config.targetSystemId, state.config.targetComponentId, request.mode);
-        try {
-          writeFrame(modeFrame);
-          console.log(`[AntennaMavlink] Set mode: ${request.mode}`);
-        } catch (e) { console.error('[AntennaMavlink] Set mode failed:', e); }
+        // Stop RC override when switching modes (avoid conflicts)
+        stopRcOverride();
+        await setModeReliable(state.config.targetSystemId, request.mode);
       }
       break;
     case 'set-home':

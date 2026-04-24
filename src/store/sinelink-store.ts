@@ -283,6 +283,14 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     sendAntennaRequest({ type: 'send-servo', azimuthPwm, elevationCmd });
   }
 
+  /**
+   * Send RC override for MANUAL mode (overrides physical RC inputs)
+   */
+  function sendRcOverride(azimuthPwm: number, elevationPwm: number): void {
+    if (!antennaConnected.value) return;
+    sendAntennaRequest({ type: 'send-rc-override', azimuthPwm, elevationPwm });
+  }
+
   function refreshPorts(): void {
     sendSinelinkRequest({ type: 'list-ports' });
   }
@@ -393,6 +401,7 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     connectAntenna,
     disconnectAntenna,
     sendServoPosition,
+    sendRcOverride,
     setTrackerMode,
     setTrackerHome,
     forwardDronePosition,

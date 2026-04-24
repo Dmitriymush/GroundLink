@@ -93,6 +93,7 @@ export type AntennaMavlinkIPCRequest =
   | { type: 'connect'; config: AntennaMavlinkConfig }
   | { type: 'disconnect' }
   | { type: 'send-servo'; azimuthPwm: number; elevationCmd: number }
+  | { type: 'send-rc-override'; azimuthPwm: number; elevationPwm: number }
   | { type: 'set-mode'; mode: number }
   | { type: 'set-home'; lat: number; lon: number; alt: number }
   | { type: 'forward-position'; lat: number; lon: number; alt: number; relativeAlt: number; hdg: number }

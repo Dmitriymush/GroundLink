@@ -17,19 +17,23 @@ const MAVLINK_V2_HEADER_LEN = 10; // v2: STX + len + incompat + compat + seq + s
 
 // Message IDs
 export const MAVLINK_MSG_ID_HEARTBEAT = 0;
+export const MAVLINK_MSG_ID_SET_MODE = 11;
 export const MAVLINK_MSG_ID_GLOBAL_POSITION_INT = 33;
 export const MAVLINK_MSG_ID_SERVO_OUTPUT_RAW = 36;
 export const MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT = 62;
 export const MAVLINK_MSG_ID_COMMAND_LONG = 76;
+export const MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE = 70;
 export const MAVLINK_MSG_ID_COMMAND_ACK = 77;
 export const MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL = 110;
 
 // CRC extras for each message type (from MAVLink spec)
 const CRC_EXTRAS: Record<number, number> = {
   [MAVLINK_MSG_ID_HEARTBEAT]: 50,
+  [MAVLINK_MSG_ID_SET_MODE]: 89,
   [MAVLINK_MSG_ID_GLOBAL_POSITION_INT]: 104,
   [MAVLINK_MSG_ID_SERVO_OUTPUT_RAW]: 222,
   [MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT]: 183,
+  [MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE]: 124,
   [MAVLINK_MSG_ID_COMMAND_LONG]: 152,
   [MAVLINK_MSG_ID_COMMAND_ACK]: 143,
   [MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL]: 84,
@@ -148,11 +152,58 @@ export class MavlinkSerialBuilder {
   }
 
   /**
-   * Build COMMAND_LONG for DO_SET_MODE — switch AntennaTracker mode
+   * Build ARM/DISARM command (MAV_CMD_COMPONENT_ARM_DISARM = 400)
+   * param1: 1=arm, 0=disarm
+   */
+  buildArm(targetSystem: number, targetComponent: number, arm: boolean): Buffer {
+    return this.buildCommandLong(targetSystem, targetComponent, 400, arm ? 1 : 0);
+  }
+
+  /**
+   * Build RC_CHANNELS_OVERRIDE (msgId=70) — override RC inputs for MANUAL mode
+   * Allows controlling antenna from GCS in MANUAL mode (overrides physical RC)
+   * Payload: [chan1-8 (u16 each)] [target_system(u8)] [target_component(u8)]
+   * chan value 0 = no override (keep current), 65535 = release override
+   */
+  buildRcOverride(targetSystem: number, targetComponent: number, yawPwm: number, pitchPwm: number): Buffer {
+    const payload = Buffer.alloc(18);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+
+    // ArduPilot AntennaTracker: CH1=yaw(azimuth), CH2=pitch(elevation)
+    view.setUint16(0, yawPwm, true);     // ch1 - yaw (azimuth)
+    view.setUint16(2, pitchPwm, true);   // ch2 - pitch (elevation)
+    view.setUint16(4, 0, true);          // ch3 - no override
+    view.setUint16(6, 0, true);          // ch4 - no override
+    view.setUint16(8, 0, true);          // ch5 - no override
+    view.setUint16(10, 0, true);         // ch6
+    view.setUint16(12, 0, true);         // ch7
+    view.setUint16(14, 0, true);         // ch8
+    // target_system
+    payload[16] = targetSystem;
+    // target_component
+    payload[17] = targetComponent;
+
+    return this.buildFrame(MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE, payload);
+  }
+
+  /**
+   * Build SET_MODE message (msgId=11) — switch AntennaTracker mode
+   * Uses dedicated SET_MODE message instead of COMMAND_LONG(176) which ArduPilot may reject.
+   * Payload: [custom_mode(u32)] [target_system(u8)] [base_mode(u8)]
    * Modes: MANUAL=0, STOP=1, SCAN=2, SERVO_TEST=3, AUTO=10, INITIALISING=16
    */
-  buildSetMode(targetSystem: number, targetComponent: number, mode: number): Buffer {
-    return this.buildCommandLong(targetSystem, targetComponent, MAV_CMD_DO_SET_MODE, mode);
+  buildSetMode(targetSystem: number, _targetComponent: number, mode: number): Buffer {
+    const payload = Buffer.alloc(6);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+
+    // custom_mode (uint32 LE) — ArduPilot mode number
+    view.setUint32(0, mode, true);
+    // target_system (uint8)
+    payload[4] = targetSystem;
+    // base_mode (uint8) — MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
+    payload[5] = 1;
+
+    return this.buildFrame(MAVLINK_MSG_ID_SET_MODE, payload);
   }
 
   /**
