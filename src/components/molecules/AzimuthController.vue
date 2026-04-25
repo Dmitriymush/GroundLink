@@ -919,6 +919,14 @@ const formatDistance = (meters: number): string => {
   return `${meters.toFixed(0)}m`;
 };
 
+// Forward between links: when drone position updates, forward to antenna tracker (for AUTO mode)
+watch(() => mavlinkStore.dronePosition, (pos) => {
+  if (!pos || !sinelinkStore.antennaConnected) return;
+  if (sinelinkStore.trackerMode === 10) { // AUTO mode — tracker needs drone position
+    sinelinkStore.forwardDronePosition(pos.lat, pos.lon, pos.alt, pos.alt, mavlinkStore.droneHdg);
+  }
+}, { deep: true });
+
 // Auto-tracking: when MAVLink tracking is active, override compass angles + send servo if antenna connected
 watch(() => mavlinkStore.trackingAngles, (angles) => {
   if (controlMode.value === 'mavlink' && mavlinkStore.isTracking && angles) {
@@ -952,6 +960,14 @@ watch(() => sinelinkStore.trackingAngles, (angles) => {
     if (pwmValues) {
       sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
     }
+  }
+}, { deep: true });
+
+// Forward between links (SineLink mode): forward drone position to tracker for AUTO mode
+watch(() => sinelinkStore.dronePosition, (pos) => {
+  if (!pos || !sinelinkStore.antennaConnected) return;
+  if (sinelinkStore.trackerMode === 10) { // AUTO mode
+    sinelinkStore.forwardDronePosition(pos.lat, pos.lon, pos.alt, pos.alt, 0);
   }
 }, { deep: true });
 

@@ -436,7 +436,18 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
         const azPwm = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
         sendServoCommand(state.config.azimuthServoChannel, azPwm);
         // Map elevation from cmd (0-95) to servo range (900-2200)
-        const elevationPwm = Math.round(900 + (request.elevationCmd / 95) * 1300);
+        // cmd=40 corresponds to UI 40° = horizontal (0° pitch) = servo center (1550)
+        // cmd=0 → 900, cmd=40 → 1550, cmd=95 → 2200
+        const PITCH_OFFSET_CMD = 40; // UI degrees where pitch = 0 (horizontal)
+        const PITCH_CENTER_PWM = 1550;
+        let elevationPwm: number;
+        if (request.elevationCmd <= PITCH_OFFSET_CMD) {
+          // Below horizontal: cmd 0→40 maps to 900→1550
+          elevationPwm = Math.round(900 + (request.elevationCmd / PITCH_OFFSET_CMD) * (PITCH_CENTER_PWM - 900));
+        } else {
+          // Above horizontal: cmd 40→95 maps to 1550→2200
+          elevationPwm = Math.round(PITCH_CENTER_PWM + ((request.elevationCmd - PITCH_OFFSET_CMD) / (95 - PITCH_OFFSET_CMD)) * (2200 - PITCH_CENTER_PWM));
+        }
         sendServoCommand(state.config.elevationServoChannel, elevationPwm);
       }
       break;
@@ -445,9 +456,17 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
         // Map azimuth from servo range (540-2400) to RC yaw range (350-2350), inverted (same as servo)
         const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
         state.rcOverrideAz = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
-        // Map elevation from (1000-2000) to RC pitch range (900-2200)
+        // Map elevation from (1000-2000) to RC pitch range (900-2200) with 40° offset
+        // elevationPwm 1000-2000 → need to apply same offset as servo
         const elNorm = (request.elevationPwm - 1000) / 1000; // 0..1
-        state.rcOverrideEl = Math.round(900 + elNorm * 1300); // 900..2200
+        const elCmd = elNorm * 95; // back to cmd 0-95
+        const PITCH_OFFSET_CMD_RC = 40;
+        const PITCH_CENTER_RC = 1550;
+        if (elCmd <= PITCH_OFFSET_CMD_RC) {
+          state.rcOverrideEl = Math.round(900 + (elCmd / PITCH_OFFSET_CMD_RC) * (PITCH_CENTER_RC - 900));
+        } else {
+          state.rcOverrideEl = Math.round(PITCH_CENTER_RC + ((elCmd - PITCH_OFFSET_CMD_RC) / (95 - PITCH_OFFSET_CMD_RC)) * (2200 - PITCH_CENTER_RC));
+        }
         // Start continuous RC override loop if not already running
         if (!state.rcOverrideActive) startRcOverride();
       }
