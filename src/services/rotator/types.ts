@@ -44,9 +44,9 @@ export const DEFAULT_ROTATOR_CONFIG: RotatorConfig = {
 // ============================================================
 
 export const ROTATOR_CONSTANTS = {
-  // Azimuth limits (protocol degrees)
-  AZIMUTH_MIN_DEG: -164,
-  AZIMUTH_MAX_DEG: 164,
+  // Azimuth limits (protocol degrees) — full 360° range
+  AZIMUTH_MIN_DEG: -180,
+  AZIMUTH_MAX_DEG: 180,
 
   // Azimuth PWM range
   AZIMUTH_PWM_MIN: 540,

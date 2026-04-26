@@ -436,10 +436,10 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
         const azPwm = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
         sendServoCommand(state.config.azimuthServoChannel, azPwm);
         // Map elevation from cmd (0-95) to servo range (900-2200)
-        // cmd=40 corresponds to UI 40° = horizontal (0° pitch) = servo center (1550)
-        // cmd=0 → 900, cmd=40 → 1550, cmd=95 → 2200
-        const PITCH_OFFSET_CMD = 40; // UI degrees where pitch = 0 (horizontal)
-        const PITCH_CENTER_PWM = 1550;
+        // cmd=32 corresponds to UI 32° = horizontal (0° pitch) = servo PWM 1420
+        // cmd=0 → 900, cmd=32 → 1420, cmd=95 → 2200
+        const PITCH_OFFSET_CMD = 32; // UI degrees where pitch = 0 (horizontal)
+        const PITCH_CENTER_PWM = 1420;
         let elevationPwm: number;
         if (request.elevationCmd <= PITCH_OFFSET_CMD) {
           // Below horizontal: cmd 0→40 maps to 900→1550
@@ -456,12 +456,12 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
         // Map azimuth from servo range (540-2400) to RC yaw range (350-2350), inverted (same as servo)
         const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
         state.rcOverrideAz = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
-        // Map elevation from (1000-2000) to RC pitch range (900-2200) with 40° offset
+        // Map elevation from (1000-2000) to RC pitch range (900-2200) with 32° offset
         // elevationPwm 1000-2000 → need to apply same offset as servo
         const elNorm = (request.elevationPwm - 1000) / 1000; // 0..1
         const elCmd = elNorm * 95; // back to cmd 0-95
-        const PITCH_OFFSET_CMD_RC = 40;
-        const PITCH_CENTER_RC = 1550;
+        const PITCH_OFFSET_CMD_RC = 32;
+        const PITCH_CENTER_RC = 1420;
         if (elCmd <= PITCH_OFFSET_CMD_RC) {
           state.rcOverrideEl = Math.round(900 + (elCmd / PITCH_OFFSET_CMD_RC) * (PITCH_CENTER_RC - 900));
         } else {
