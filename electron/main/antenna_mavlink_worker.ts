@@ -435,18 +435,16 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
         const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
         const azPwm = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
         sendServoCommand(state.config.azimuthServoChannel, azPwm);
-        // Map elevation from cmd (0-95) to servo range (900-2200)
-        // cmd=32 corresponds to UI 32° = horizontal (0° pitch) = servo PWM 1420
-        // cmd=0 → 900, cmd=32 → 1420, cmd=95 → 2200
-        const PITCH_OFFSET_CMD = 32; // UI degrees where pitch = 0 (horizontal)
-        const PITCH_CENTER_PWM = 1420;
+        // Map elevation degrees (-75..+90) to servo PWM (900..2200)
+        // -75° → 900, 0° → 1420, +90° → 2200
+        const elDeg = request.elevationCmd; // now receives raw degrees
         let elevationPwm: number;
-        if (request.elevationCmd <= PITCH_OFFSET_CMD) {
-          // Below horizontal: cmd 0→40 maps to 900→1550
-          elevationPwm = Math.round(900 + (request.elevationCmd / PITCH_OFFSET_CMD) * (PITCH_CENTER_PWM - 900));
+        if (elDeg <= 0) {
+          // -75° to 0° → 900 to 1420
+          elevationPwm = Math.round(1420 + (elDeg / 75) * (1420 - 900));
         } else {
-          // Above horizontal: cmd 40→95 maps to 1550→2200
-          elevationPwm = Math.round(PITCH_CENTER_PWM + ((request.elevationCmd - PITCH_OFFSET_CMD) / (95 - PITCH_OFFSET_CMD)) * (2200 - PITCH_CENTER_PWM));
+          // 0° to +90° → 1420 to 2200
+          elevationPwm = Math.round(1420 + (elDeg / 90) * (2200 - 1420));
         }
         sendServoCommand(state.config.elevationServoChannel, elevationPwm);
       }
@@ -456,16 +454,12 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
         // Map azimuth from servo range (540-2400) to RC yaw range (350-2350), inverted (same as servo)
         const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
         state.rcOverrideAz = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
-        // Map elevation from (1000-2000) to RC pitch range (900-2200) with 32° offset
-        // elevationPwm 1000-2000 → need to apply same offset as servo
-        const elNorm = (request.elevationPwm - 1000) / 1000; // 0..1
-        const elCmd = elNorm * 95; // back to cmd 0-95
-        const PITCH_OFFSET_CMD_RC = 32;
-        const PITCH_CENTER_RC = 1420;
-        if (elCmd <= PITCH_OFFSET_CMD_RC) {
-          state.rcOverrideEl = Math.round(900 + (elCmd / PITCH_OFFSET_CMD_RC) * (PITCH_CENTER_RC - 900));
+        // Map elevation degrees (-75..+90) to RC pitch PWM (900..2200)
+        const rcElDeg = request.elevationPwm; // now receives raw degrees
+        if (rcElDeg <= 0) {
+          state.rcOverrideEl = Math.round(1420 + (rcElDeg / 75) * (1420 - 900));
         } else {
-          state.rcOverrideEl = Math.round(PITCH_CENTER_RC + ((elCmd - PITCH_OFFSET_CMD_RC) / (95 - PITCH_OFFSET_CMD_RC)) * (2200 - PITCH_CENTER_RC));
+          state.rcOverrideEl = Math.round(1420 + (rcElDeg / 90) * (2200 - 1420));
         }
         // Start continuous RC override loop if not already running
         if (!state.rcOverrideActive) startRcOverride();

@@ -27,7 +27,7 @@ export function useAntennaState() {
     const hardwareDeg = mapValue(hozRaw.value, 0, 2047, 0, 359);
     return ((hardwareDeg + AZIMUTH_OFFSET) % 360 + 360) % 360;
   });
-  const elevationDegrees = computed(() => mapValue(verRaw.value, 0, 2047, 0, 90));
+  const elevationDegrees = computed(() => mapValue(verRaw.value, 0, 2047, -75, 90));
 
   // Setters from degrees (display to hardware: subtract offset)
   const setAzimuthDegrees = (deg: number) => {
@@ -36,8 +36,8 @@ export function useAntennaState() {
   };
 
   const setElevationDegrees = (deg: number) => {
-    const clamped = Math.max(0, Math.min(90, deg));
-    verRaw.value = mapValue(clamped, 0, 90, 0, 2047);
+    const clamped = Math.max(-75, Math.min(90, deg));
+    verRaw.value = mapValue(clamped, -75, 90, 0, 2047);
   };
 
   // Setters for raw values

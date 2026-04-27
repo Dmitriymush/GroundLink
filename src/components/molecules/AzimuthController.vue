@@ -940,7 +940,7 @@ watch(() => mavlinkStore.trackingAngles, (angles) => {
         Math.round(angles.elevation),
       );
       if (pwmValues) {
-        sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+        sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, Math.round(angles.elevation));
       }
     }
   }
@@ -952,13 +952,13 @@ watch(() => sinelinkStore.trackingAngles, (angles) => {
     setAzimuthDegrees(Math.round(angles.azimuth));
     setElevationDegrees(Math.round(angles.elevation));
 
-    // Send servo commands using the same PWM conversion as UDP mode
+    // Send servo commands
     const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(
       Math.round(angles.azimuth),
       Math.round(angles.elevation),
     );
     if (pwmValues) {
-      sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+      sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, Math.round(angles.elevation));
     }
   }
 }, { deep: true });
@@ -1004,12 +1004,11 @@ if (rotatorStore) {
         const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(az, el);
         if (pwmValues) {
           if (tMode === 3) {
-            // SERVO_TEST — send DO_SET_SERVO
-            sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+            // SERVO_TEST — send DO_SET_SERVO (elevationCmd = raw degrees)
+            sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, el);
           } else if (tMode === 0) {
-            // MANUAL — send RC_CHANNELS_OVERRIDE
-            const elevationPwm = Math.round(1000 + (pwmValues.elevationCmd / 95) * 1000);
-            sinelinkStore.sendRcOverride(pwmValues.azimuthPwm, elevationPwm);
+            // MANUAL — send RC_CHANNELS_OVERRIDE (elevationPwm = raw degrees)
+            sinelinkStore.sendRcOverride(pwmValues.azimuthPwm, el);
           }
           // AUTO (10), STOP (1) — don't send anything, ArduPilot handles it
         }
@@ -1026,7 +1025,7 @@ if (rotatorStore) {
     if (controlMode.value === 'mavlink-serial' && sinelinkStore.antennaConnected) {
       const pwmValues = sinelinkFrameBuilder.getAzimuthElevationPwm(azimuthDegrees.value, elevationDegrees.value);
       if (pwmValues) {
-        sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, pwmValues.elevationCmd);
+        sinelinkStore.sendServoPosition(pwmValues.azimuthPwm, elevationDegrees.value);
       }
     }
   });
