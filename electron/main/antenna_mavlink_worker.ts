@@ -25,6 +25,7 @@ import {
   MavlinkSerialBuilder,
   MavlinkSerialParser,
   MAVLINK_MSG_ID_HEARTBEAT,
+  MAVLINK_MSG_ID_ATTITUDE,
   MAVLINK_MSG_ID_SERVO_OUTPUT_RAW,
   MAVLINK_MSG_ID_COMMAND_ACK,
 } from '../../src/services/sinelink/mavlink-serial';
@@ -241,6 +242,18 @@ function handleIncomingData(data: Buffer): void {
         componentId: frame.componentId,
         trackerMode: customMode,
         armed: (baseMode & 0x80) !== 0,
+      });
+    } else if (frame.msgId === MAVLINK_MSG_ID_ATTITUDE && frame.payload.length >= 28) {
+      const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
+      // ATTITUDE payload: time_boot_ms(u32), roll(f32), pitch(f32), yaw(f32), ...
+      const yawRad = view.getFloat32(12, true);
+      const pitchRad = view.getFloat32(8, true);
+      const yawDeg = (yawRad * 180 / Math.PI + 360) % 360; // 0-360
+      const pitchDeg = pitchRad * 180 / Math.PI;
+      sendToRenderer({
+        type: 'attitude',
+        yaw: yawDeg,
+        pitch: pitchDeg,
       });
     } else if (frame.msgId === MAVLINK_MSG_ID_SERVO_OUTPUT_RAW && frame.payload.length >= 8) {
       const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);

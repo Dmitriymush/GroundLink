@@ -556,6 +556,13 @@
 
     <!-- Bottom: Controls -->
     <div class="controls-bottom">
+      <!-- Tracker compass reading -->
+      <div v-if="sinelinkStore.antennaHeartbeatReceived" class="tracker-compass-info">
+        <span class="tracker-compass-label">Compass:</span>
+        <span class="tracker-compass-value">{{ sinelinkStore.trackerYaw.toFixed(1) }}°</span>
+        <span class="tracker-compass-label">Pitch:</span>
+        <span class="tracker-compass-value">{{ sinelinkStore.trackerPitch.toFixed(1) }}°</span>
+      </div>
       <div class="input-row">
         <VTextField
           :model-value="azimuthDegrees"
@@ -1208,6 +1215,28 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: rgba(128, 128, 128, 0.7);
   font-family: monospace;
+}
+
+.tracker-compass-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: rgba(25, 118, 210, 0.08);
+  border-radius: 12px;
+  margin-top: 4px;
+}
+
+.tracker-compass-label {
+  font-size: 11px;
+  color: rgba(128, 128, 128, 0.7);
+  text-transform: uppercase;
+}
+
+.tracker-compass-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1976d2;
 }
 
 .tracking-icon {

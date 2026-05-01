@@ -104,6 +104,7 @@ export type AntennaMavlinkIPCResponse =
   | { type: 'disconnected' }
   | { type: 'heartbeat-received'; systemId: number; componentId: number; trackerMode: number; armed: boolean }
   | { type: 'servo-output'; servo1: number; servo2: number; servo3: number; servo4: number }
+  | { type: 'attitude'; yaw: number; pitch: number }
   | { type: 'command-ack'; command: number; result: number }
   | { type: 'ports'; ports: SerialPortInfo[] }
   | { type: 'error'; code: string; message: string };

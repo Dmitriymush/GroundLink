@@ -75,8 +75,13 @@ export const useSinelinkStore = defineStore('sinelink', () => {
   // AntennaTracker state (from heartbeat)
   const trackerMode = ref<number>(-1); // -1 = unknown
   const trackerArmed = ref(false);
+  let modeChangeUntil = 0; // timestamp — ignore heartbeat mode updates until this time
+  let lastHeartbeatMode = -1;
+  let heartbeatModeCount = 0; // consecutive same-mode heartbeats needed before UI update
   const trackerServo1 = ref(0);
   const trackerServo2 = ref(0);
+  const trackerYaw = ref(0);    // compass heading from ATTITUDE (degrees 0-360)
+  const trackerPitch = ref(0);  // pitch from ATTITUDE (degrees)
   const lastCommandAck = ref<{ command: number; result: number } | null>(null);
 
   // Drone position
@@ -183,13 +188,30 @@ export const useSinelinkStore = defineStore('sinelink', () => {
 
       case 'heartbeat-received':
         antennaHeartbeatReceived.value = true;
-        trackerMode.value = response.trackerMode;
         trackerArmed.value = response.armed;
+        // Debounced mode update: only update UI after 3 consecutive same-mode heartbeats
+        // Prevents flickering during mode transitions
+        if (Date.now() > modeChangeUntil) {
+          if (response.trackerMode === lastHeartbeatMode) {
+            heartbeatModeCount++;
+            if (heartbeatModeCount >= 3) {
+              trackerMode.value = response.trackerMode;
+            }
+          } else {
+            lastHeartbeatMode = response.trackerMode;
+            heartbeatModeCount = 1;
+          }
+        }
         break;
 
       case 'servo-output':
         trackerServo1.value = response.servo1;
         trackerServo2.value = response.servo2;
+        break;
+
+      case 'attitude':
+        trackerYaw.value = response.yaw;
+        trackerPitch.value = response.pitch;
         break;
 
       case 'command-ack':
@@ -304,6 +326,9 @@ export const useSinelinkStore = defineStore('sinelink', () => {
   // AntennaTracker commands
   function setTrackerMode(mode: number): void {
     if (!antennaConnected.value) return;
+    // Optimistic update + block heartbeat mode for 5s (prevents flickering during transition)
+    trackerMode.value = mode;
+    modeChangeUntil = Date.now() + 5000;
     sendAntennaRequest({ type: 'set-mode', mode });
   }
 
@@ -378,6 +403,8 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     trackerArmed,
     trackerServo1,
     trackerServo2,
+    trackerYaw,
+    trackerPitch,
     lastCommandAck,
 
     // Drone telemetry
