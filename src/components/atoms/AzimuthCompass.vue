@@ -88,7 +88,17 @@
     <!-- Center point -->
     <circle :cx="center" :cy="center" r="5" fill="#ffffff" />
 
-    <!-- Arrow indicator -->
+    <!-- Tracker actual position (blue arrow, non-interactive) -->
+    <CompassArrow
+      v-if="trackerAzimuth >= 0"
+      :center="center"
+      :azimuth="trackerAzimuth"
+      :length="radius * 0.65"
+      color="#1976d2"
+      :animated="true"
+    />
+
+    <!-- Target arrow indicator (red, interactive) -->
     <CompassArrow
       :center="center"
       :azimuth="azimuth"
@@ -110,6 +120,8 @@ interface Props {
   concentricCircles?: number;
   interactive?: boolean;
   arrowColor?: string;
+  /** Actual tracker heading (blue arrow, non-interactive). -1 = hidden */
+  trackerAzimuth?: number;
 }
 
 interface Emits {
@@ -124,6 +136,7 @@ const props = withDefaults(defineProps<Props>(), {
   concentricCircles: 3,
   interactive: true,
   arrowColor: '#ff4444',
+  trackerAzimuth: -1,
 });
 
 const emit = defineEmits<Emits>();

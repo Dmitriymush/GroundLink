@@ -329,15 +329,7 @@ export const useRotatorStore = defineStore('rotator', () => {
     console.error('[Rotator Store] Failed to setup IPC:', e);
   }
 
-  // Auto-connect if enabled
-  if (rotatorEnabled.value) {
-    // Delay connection to allow app to fully initialize
-    setTimeout(() => {
-      if (rotatorEnabled.value && !isConnected.value) {
-        connect();
-      }
-    }, 1000);
-  }
+  // No auto-connect — user must connect manually from Antenna Control page
 
   // ============================================================
   // CLEANUP

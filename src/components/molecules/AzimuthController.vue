@@ -549,6 +549,7 @@
           :azimuth="azimuthDegrees"
           :elevation="elevationDegrees"
           :arrow-color="power ? '#ff4444' : '#666666'"
+          :tracker-azimuth="sinelinkStore.antennaHeartbeatReceived ? sinelinkStore.trackerYaw : -1"
           @update:azimuth="setAzimuthDegrees"
         />
       </div>

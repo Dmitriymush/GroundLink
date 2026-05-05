@@ -25,6 +25,7 @@ import {
   MavlinkSerialBuilder,
   MavlinkSerialParser,
   MAVLINK_MSG_ID_HEARTBEAT,
+  MAVLINK_MSG_ID_PARAM_VALUE,
   MAVLINK_MSG_ID_ATTITUDE,
   MAVLINK_MSG_ID_SERVO_OUTPUT_RAW,
   MAVLINK_MSG_ID_COMMAND_ACK,
@@ -47,6 +48,13 @@ interface WorkerState {
   rcOverrideAz: number;  // current RC azimuth PWM (1000-2000)
   rcOverrideEl: number;  // current RC elevation PWM (1000-2000)
   rcOverrideActive: boolean;
+  // Servo calibration from tracker params
+  servoParams: {
+    servo1Min: number; servo1Max: number; servo1Trim: number;
+    servo2Min: number; servo2Max: number; servo2Trim: number;
+    loaded: boolean;
+  };
+  paramsRequested: boolean;
 }
 
 const state: WorkerState = {
@@ -65,6 +73,12 @@ const state: WorkerState = {
   rcOverrideAz: 1500,
   rcOverrideEl: 1500,
   rcOverrideActive: false,
+  servoParams: {
+    servo1Min: 350, servo1Max: 2350, servo1Trim: 1350,
+    servo2Min: 900, servo2Max: 2200, servo2Trim: 1420,
+    loaded: false,
+  },
+  paramsRequested: false,
 };
 
 function sendToRenderer(response: AntennaMavlinkIPCResponse): void {
@@ -78,6 +92,22 @@ function sendToRenderer(response: AntennaMavlinkIPCResponse): void {
     } catch (e) {
       console.error('[AntennaMavlink] Failed to send to renderer:', e);
     }
+  }
+}
+
+/**
+ * Map elevation degrees to servo PWM using calibrated min/max/trim
+ * 0° = trim (horizontal), negative = towards min, positive = towards max
+ */
+function mapElevationToPwm(deg: number, servoMin: number, servoMax: number, servoTrim: number): number {
+  if (deg <= 0) {
+    // 0° → trim, -75° → min (linear)
+    const range = servoTrim - servoMin;
+    return Math.round(servoTrim + (deg / 75) * range);
+  } else {
+    // 0° → trim, +90° → max (linear)
+    const range = servoMax - servoTrim;
+    return Math.round(servoTrim + (deg / 90) * range);
   }
 }
 
@@ -243,6 +273,8 @@ function handleIncomingData(data: Buffer): void {
         trackerMode: customMode,
         armed: (baseMode & 0x80) !== 0,
       });
+      // Request servo params after first heartbeat
+      if (!state.paramsRequested) requestServoParams();
     } else if (frame.msgId === MAVLINK_MSG_ID_ATTITUDE && frame.payload.length >= 28) {
       const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
       // ATTITUDE payload: time_boot_ms(u32), roll(f32), pitch(f32), yaw(f32), ...
@@ -270,8 +302,57 @@ function handleIncomingData(data: Buffer): void {
       const result = frame.payload[2];
       console.log(`[AntennaMavlink] ACK: cmd=${command} result=${result}`);
       sendToRenderer({ type: 'command-ack', command, result });
+    } else if (frame.msgId === MAVLINK_MSG_ID_PARAM_VALUE && frame.payload.length >= 25) {
+      // PARAM_VALUE: param_value(f32), param_count(u16), param_index(u16), param_id(16), param_type(u8)
+      const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
+      const paramValue = view.getFloat32(0, true);
+      const paramId = Buffer.from(frame.payload.subarray(8, 24)).toString('ascii').replace(/\0/g, '').trim();
+      handleParam(paramId, paramValue);
     }
   }
+}
+
+/**
+ * Handle received parameter value — update servo calibration
+ */
+function handleParam(paramId: string, value: number): void {
+  const p = state.servoParams;
+  switch (paramId) {
+    case 'SERVO1_MIN': p.servo1Min = value; break;
+    case 'SERVO1_MAX': p.servo1Max = value; break;
+    case 'SERVO1_TRIM': p.servo1Trim = value; break;
+    case 'SERVO2_MIN': p.servo2Min = value; break;
+    case 'SERVO2_MAX': p.servo2Max = value; break;
+    case 'SERVO2_TRIM': p.servo2Trim = value; break;
+    default: return;
+  }
+  console.log(`[AntennaMavlink] Param ${paramId} = ${value}`);
+  p.loaded = true;
+  sendToRenderer({
+    type: 'servo-params',
+    servo1Min: p.servo1Min, servo1Max: p.servo1Max, servo1Trim: p.servo1Trim,
+    servo2Min: p.servo2Min, servo2Max: p.servo2Max, servo2Trim: p.servo2Trim,
+  });
+}
+
+/**
+ * Request servo parameters from tracker (called after first heartbeat)
+ */
+function requestServoParams(): void {
+  if (!state.connected || !state.config || state.paramsRequested) return;
+  state.paramsRequested = true;
+
+  const params = ['SERVO1_MIN', 'SERVO1_MAX', 'SERVO1_TRIM', 'SERVO2_MIN', 'SERVO2_MAX', 'SERVO2_TRIM'];
+  let delay = 0;
+  for (const paramId of params) {
+    setTimeout(() => {
+      if (!state.connected || !state.config) return;
+      const frame = state.mavBuilder.buildParamRequest(state.config.targetSystemId, state.config.targetComponentId, paramId);
+      try { writeFrame(frame); } catch (_) {}
+    }, delay);
+    delay += 300;
+  }
+  console.log('[AntennaMavlink] Requested servo params');
 }
 
 // ============================================================
@@ -409,6 +490,8 @@ async function disconnect(): Promise<void> {
 
   state.connected = false;
   state.config = null;
+  state.paramsRequested = false;
+  state.servoParams.loaded = false;
   state.mavParser.reset();
   sendToRenderer({ type: 'disconnected' });
 }
@@ -444,36 +527,27 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
       break;
     case 'send-servo':
       if (state.config) {
-        // Map azimuth from internal range (540-2400) to servo range (350-2350), inverted
+        const p = state.servoParams;
+        // Map azimuth from internal range (540-2400) to servo range (servo1Min-servo1Max), inverted
         const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
-        const azPwm = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
+        const azPwm = Math.round(p.servo1Max - azNorm * (p.servo1Max - p.servo1Min)); // inverted
         sendServoCommand(state.config.azimuthServoChannel, azPwm);
-        // Map elevation degrees (-75..+90) to servo PWM (900..2200)
-        // -75° → 900, 0° → 1420, +90° → 2200
-        const elDeg = request.elevationCmd; // now receives raw degrees
-        let elevationPwm: number;
-        if (elDeg <= 0) {
-          // -75° to 0° → 900 to 1420
-          elevationPwm = Math.round(1420 + (elDeg / 75) * (1420 - 900));
-        } else {
-          // 0° to +90° → 1420 to 2200
-          elevationPwm = Math.round(1420 + (elDeg / 90) * (2200 - 1420));
-        }
+        // Map elevation degrees to servo PWM using calibrated params
+        // 0° = trim (horizontal), negative = towards min, positive = towards max
+        const elDeg = request.elevationCmd; // raw degrees
+        const elevationPwm = mapElevationToPwm(elDeg, p.servo2Min, p.servo2Max, p.servo2Trim);
         sendServoCommand(state.config.elevationServoChannel, elevationPwm);
       }
       break;
     case 'send-rc-override':
       if (state.connected && state.config) {
-        // Map azimuth from servo range (540-2400) to RC yaw range (350-2350), inverted (same as servo)
+        const pRc = state.servoParams;
+        // Map azimuth, inverted (same as servo)
         const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
-        state.rcOverrideAz = Math.round(2350 - azNorm * 2000); // 2350→350 (inverted)
-        // Map elevation degrees (-75..+90) to RC pitch PWM (900..2200)
-        const rcElDeg = request.elevationPwm; // now receives raw degrees
-        if (rcElDeg <= 0) {
-          state.rcOverrideEl = Math.round(1420 + (rcElDeg / 75) * (1420 - 900));
-        } else {
-          state.rcOverrideEl = Math.round(1420 + (rcElDeg / 90) * (2200 - 1420));
-        }
+        state.rcOverrideAz = Math.round(pRc.servo1Max - azNorm * (pRc.servo1Max - pRc.servo1Min));
+        // Map elevation degrees using calibrated params
+        const rcElDeg = request.elevationPwm; // raw degrees
+        state.rcOverrideEl = mapElevationToPwm(rcElDeg, pRc.servo2Min, pRc.servo2Max, pRc.servo2Trim);
         // Start continuous RC override loop if not already running
         if (!state.rcOverrideActive) startRcOverride();
       }

@@ -214,6 +214,10 @@ export const useSinelinkStore = defineStore('sinelink', () => {
         trackerPitch.value = response.pitch;
         break;
 
+      case 'servo-params':
+        console.log(`[Sinelink Store] Servo params: S1=${response.servo1Min}-${response.servo1Max}(${response.servo1Trim}) S2=${response.servo2Min}-${response.servo2Max}(${response.servo2Trim})`);
+        break;
+
       case 'command-ack':
         lastCommandAck.value = { command: response.command, result: response.result };
         break;

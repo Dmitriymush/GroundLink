@@ -17,6 +17,8 @@ const MAVLINK_V2_HEADER_LEN = 10; // v2: STX + len + incompat + compat + seq + s
 
 // Message IDs
 export const MAVLINK_MSG_ID_HEARTBEAT = 0;
+export const MAVLINK_MSG_ID_PARAM_REQUEST_READ = 20;
+export const MAVLINK_MSG_ID_PARAM_VALUE = 22;
 export const MAVLINK_MSG_ID_SET_MODE = 11;
 export const MAVLINK_MSG_ID_ATTITUDE = 30;
 export const MAVLINK_MSG_ID_GLOBAL_POSITION_INT = 33;
@@ -30,6 +32,8 @@ export const MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL = 110;
 // CRC extras for each message type (from MAVLink spec)
 const CRC_EXTRAS: Record<number, number> = {
   [MAVLINK_MSG_ID_HEARTBEAT]: 50,
+  [MAVLINK_MSG_ID_PARAM_REQUEST_READ]: 214,
+  [MAVLINK_MSG_ID_PARAM_VALUE]: 220,
   [MAVLINK_MSG_ID_SET_MODE]: 89,
   [MAVLINK_MSG_ID_ATTITUDE]: 39,
   [MAVLINK_MSG_ID_GLOBAL_POSITION_INT]: 104,
@@ -186,6 +190,28 @@ export class MavlinkSerialBuilder {
     payload[17] = targetComponent;
 
     return this.buildFrame(MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE, payload);
+  }
+
+  /**
+   * Build PARAM_REQUEST_READ (msgId=20) — read a parameter from the tracker
+   * Payload: [target_system(u8)] [target_component(u8)] [param_id(16 chars)] [param_index(i16)]
+   * Wire order (by size): param_index(i16), target_system(u8), target_component(u8), param_id(16)
+   */
+  buildParamRequest(targetSystem: number, targetComponent: number, paramId: string): Buffer {
+    const payload = Buffer.alloc(20);
+
+    // param_index (int16 LE) = -1 (use param_id string instead of index)
+    payload[0] = 0xFF; // -1 low byte
+    payload[1] = 0xFF; // -1 high byte
+    // target_system
+    payload[2] = targetSystem;
+    // target_component
+    payload[3] = targetComponent;
+    // param_id (16 bytes, null-padded)
+    const idBytes = Buffer.from(paramId, 'ascii');
+    idBytes.copy(payload, 4, 0, Math.min(16, idBytes.length));
+
+    return this.buildFrame(MAVLINK_MSG_ID_PARAM_REQUEST_READ, payload);
   }
 
   /**
