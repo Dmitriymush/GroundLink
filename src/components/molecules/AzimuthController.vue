@@ -253,8 +253,14 @@
             </VBtn>
           </div>
 
-          <!-- AntennaTracker controls (when antenna connected) -->
-          <div v-if="sinelinkStore.antennaHeartbeatReceived" class="tracker-controls">
+          <!-- Loading params indicator -->
+          <div v-if="sinelinkStore.antennaHeartbeatReceived && !sinelinkStore.antennaParamsLoaded" class="params-loading">
+            <VProgressCircular indeterminate size="16" width="2" color="primary" />
+            <span>Loading params...</span>
+          </div>
+
+          <!-- AntennaTracker controls (only after params loaded) -->
+          <div v-if="sinelinkStore.antennaParamsLoaded" class="tracker-controls">
             <div class="tracker-mode-row">
               <span class="section-label" style="margin: 0;">Mode: <strong>{{ trackerModeName }}</strong></span>
               <div class="tracker-mode-buttons">
@@ -429,8 +435,14 @@
             </VBtn>
           </div>
 
-          <!-- AntennaTracker controls (when antenna connected in SineLink mode) -->
-          <div v-if="sinelinkStore.antennaHeartbeatReceived" class="tracker-controls">
+          <!-- Loading params indicator (SineLink mode) -->
+          <div v-if="sinelinkStore.antennaHeartbeatReceived && !sinelinkStore.antennaParamsLoaded" class="params-loading">
+            <VProgressCircular indeterminate size="16" width="2" color="primary" />
+            <span>Loading params...</span>
+          </div>
+
+          <!-- AntennaTracker controls (only after params loaded, SineLink mode) -->
+          <div v-if="sinelinkStore.antennaParamsLoaded" class="tracker-controls">
             <div class="tracker-mode-row">
               <span class="section-label" style="margin: 0;">Mode: <strong>{{ trackerModeName }}</strong></span>
               <div class="tracker-mode-buttons">
@@ -606,7 +618,7 @@
         </div>
 
         <div class="power-row">
-          <VBtnToggle v-model="power" mandatory color="primary" variant="outlined">
+          <VBtnToggle v-model="power" mandatory color="primary" variant="outlined" :disabled="antennaWaitingParams">
             <VBtn :value="false">
               <VIcon start>mdi-power-off</VIcon>
               {{ t('Off') }}
@@ -907,6 +919,24 @@ const toggleMavlinkConnection = () => {
   }
 };
 
+// Antenna waiting for params — controls disabled
+const antennaWaitingParams = computed(() =>
+  sinelinkStore.antennaConnected && sinelinkStore.antennaHeartbeatReceived && !sinelinkStore.antennaParamsLoaded
+);
+
+// Auto power OFF when antenna connects, ON when params loaded
+watch(() => sinelinkStore.antennaConnected, (connected) => {
+  if (connected) {
+    power.value = false;
+  }
+});
+
+watch(() => sinelinkStore.antennaParamsLoaded, (loaded) => {
+  if (loaded) {
+    power.value = true;
+  }
+});
+
 // AntennaTracker helpers
 const trackerModeName = computed(() => {
   const mode = sinelinkStore.trackerMode;
@@ -1182,6 +1212,19 @@ onBeforeUnmount(() => {
 .gcs-inputs > * { flex: 1; }
 
 .mavlink-status { margin-top: 6px; }
+
+.params-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(25, 118, 210, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(25, 118, 210, 0.2);
+  font-size: 13px;
+  color: #1976d2;
+}
 
 .tracker-controls {
   margin-top: 8px;

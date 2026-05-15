@@ -152,12 +152,9 @@ const tickMinorLength = 8;
 const labelOffset = 35;
 const degreeOffset = 55;
 
-// Arrow length based on elevation (longer = lower elevation for visual perspective)
+// Fixed arrow length
 const arrowLength = computed(() => {
-  const minLength = radius.value * 0.3;
-  const maxLength = radius.value * 0.8;
-  // Map elevation 0-90 to maxLength-minLength (lower elevation = longer arrow)
-  return maxLength - (props.elevation / 90) * (maxLength - minLength);
+  return radius.value * 0.75;
 });
 
 // Angle arrays for tick marks

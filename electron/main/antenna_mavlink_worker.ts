@@ -327,6 +327,7 @@ function handleParam(paramId: string, value: number): void {
     default: return;
   }
   console.log(`[AntennaMavlink] Param ${paramId} = ${value}`);
+  receivedParams.add(paramId);
   p.loaded = true;
   sendToRenderer({
     type: 'servo-params',
@@ -336,23 +337,48 @@ function handleParam(paramId: string, value: number): void {
 }
 
 /**
- * Request servo parameters from tracker (called after first heartbeat)
+ * Request servo parameters from tracker — retries every 2s until all received
  */
-function requestServoParams(): void {
-  if (!state.connected || !state.config || state.paramsRequested) return;
-  state.paramsRequested = true;
+let paramRetryTimer: ReturnType<typeof setInterval> | null = null;
+const REQUIRED_PARAMS = ['SERVO1_MIN', 'SERVO1_MAX', 'SERVO1_TRIM', 'SERVO2_MIN', 'SERVO2_MAX', 'SERVO2_TRIM'];
+const receivedParams = new Set<string>();
 
-  const params = ['SERVO1_MIN', 'SERVO1_MAX', 'SERVO1_TRIM', 'SERVO2_MIN', 'SERVO2_MAX', 'SERVO2_TRIM'];
-  let delay = 0;
-  for (const paramId of params) {
-    setTimeout(() => {
-      if (!state.connected || !state.config) return;
-      const frame = state.mavBuilder.buildParamRequest(state.config.targetSystemId, state.config.targetComponentId, paramId);
-      try { writeFrame(frame); } catch (_) {}
-    }, delay);
-    delay += 300;
+function requestServoParams(): void {
+  if (paramRetryTimer) return; // already running
+
+  const sendAllParamRequests = () => {
+    if (!state.connected || !state.config) {
+      stopParamRequests();
+      return;
+    }
+
+    // Check if all params received
+    if (receivedParams.size >= REQUIRED_PARAMS.length) {
+      console.log('[AntennaMavlink] All servo params received');
+      stopParamRequests();
+      return;
+    }
+
+    // Request only missing params
+    for (const paramId of REQUIRED_PARAMS) {
+      if (!receivedParams.has(paramId)) {
+        const frame = state.mavBuilder.buildParamRequest(state.config.targetSystemId, state.config.targetComponentId, paramId);
+        try { writeFrame(frame); } catch (_) {}
+      }
+    }
+    console.log(`[AntennaMavlink] Requesting params (${receivedParams.size}/${REQUIRED_PARAMS.length} received)`);
+  };
+
+  // Send immediately + retry every 2 seconds
+  sendAllParamRequests();
+  paramRetryTimer = setInterval(sendAllParamRequests, 2000);
+}
+
+function stopParamRequests(): void {
+  if (paramRetryTimer) {
+    clearInterval(paramRetryTimer);
+    paramRetryTimer = null;
   }
-  console.log('[AntennaMavlink] Requested servo params');
 }
 
 // ============================================================
@@ -475,6 +501,8 @@ function stopHeartbeat(): void {
 async function disconnect(): Promise<void> {
   stopHeartbeat();
   stopRcOverride();
+  stopParamRequests();
+  receivedParams.clear();
 
   // Close serial
   if (state.port) {

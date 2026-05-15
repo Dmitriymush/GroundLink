@@ -71,6 +71,7 @@ export const useSinelinkStore = defineStore('sinelink', () => {
   const antennaConnecting = ref(false);
   const antennaError = ref<string | null>(null);
   const antennaHeartbeatReceived = ref(false);
+  const antennaParamsLoaded = ref(false); // true when all servo params received
 
   // AntennaTracker state (from heartbeat)
   const trackerMode = ref<number>(-1); // -1 = unknown
@@ -184,6 +185,7 @@ export const useSinelinkStore = defineStore('sinelink', () => {
         antennaConnected.value = false;
         antennaConnecting.value = false;
         antennaHeartbeatReceived.value = false;
+        antennaParamsLoaded.value = false;
         break;
 
       case 'heartbeat-received':
@@ -215,7 +217,8 @@ export const useSinelinkStore = defineStore('sinelink', () => {
         break;
 
       case 'servo-params':
-        console.log(`[Sinelink Store] Servo params: S1=${response.servo1Min}-${response.servo1Max}(${response.servo1Trim}) S2=${response.servo2Min}-${response.servo2Max}(${response.servo2Trim})`);
+        antennaParamsLoaded.value = true;
+        console.log(`[Sinelink Store] Servo params loaded: S1=${response.servo1Min}-${response.servo1Max}(${response.servo1Trim}) S2=${response.servo2Min}-${response.servo2Max}(${response.servo2Trim})`);
         break;
 
       case 'command-ack':
@@ -401,6 +404,7 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     antennaConnecting,
     antennaError,
     antennaHeartbeatReceived,
+    antennaParamsLoaded,
 
     // AntennaTracker state
     trackerMode,
