@@ -933,6 +933,9 @@ watch(() => sinelinkStore.antennaConnected, (connected) => {
 
 watch(() => sinelinkStore.antennaParamsLoaded, (loaded) => {
   if (loaded) {
+    // Set azimuth and elevation to 0 (North, horizontal)
+    setAzimuthDegrees(0);
+    setElevationDegrees(0);
     power.value = true;
   }
 });
