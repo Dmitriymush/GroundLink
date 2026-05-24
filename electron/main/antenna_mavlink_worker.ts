@@ -302,11 +302,13 @@ function handleIncomingData(data: Buffer): void {
       const result = frame.payload[2];
       console.log(`[AntennaMavlink] ACK: cmd=${command} result=${result}`);
       sendToRenderer({ type: 'command-ack', command, result });
-    } else if (frame.msgId === MAVLINK_MSG_ID_PARAM_VALUE && frame.payload.length >= 25) {
+    } else if (frame.msgId === MAVLINK_MSG_ID_PARAM_VALUE && frame.payload.length >= 8) {
       // PARAM_VALUE: param_value(f32), param_count(u16), param_index(u16), param_id(16), param_type(u8)
+      // Truncated payload may be as short as 18 bytes (param_type trailing zero removed)
       const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
       const paramValue = view.getFloat32(0, true);
-      const paramId = Buffer.from(frame.payload.subarray(8, 24)).toString('ascii').replace(/\0/g, '').trim();
+      const idEnd = Math.min(24, frame.payload.length);
+      const paramId = Buffer.from(frame.payload.subarray(8, idEnd)).toString('ascii').replace(/\0/g, '').trim();
       handleParam(paramId, paramValue);
     }
   }

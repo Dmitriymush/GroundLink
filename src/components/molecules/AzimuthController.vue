@@ -562,6 +562,7 @@
           :elevation="elevationDegrees"
           :arrow-color="power ? '#ff4444' : '#666666'"
           :tracker-azimuth="sinelinkStore.antennaHeartbeatReceived ? sinelinkStore.trackerYaw : -1"
+          :interactive="!controlsDisabled"
           @update:azimuth="setAzimuthDegrees"
         />
       </div>
@@ -585,6 +586,7 @@
           variant="outlined"
           density="compact"
           hide-details
+          :disabled="controlsDisabled"
           @update:model-value="handleAzimuthInput"
         />
         <VTextField
@@ -595,30 +597,31 @@
           variant="outlined"
           density="compact"
           hide-details
+          :disabled="controlsDisabled"
           @update:model-value="handleElevationInput"
         />
       </div>
 
       <template v-if="!props.compact">
         <div class="button-row">
-          <VBtn color="primary" icon size="default" @mousedown="startContinuousChange('azimuth', -1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
+          <VBtn color="primary" icon size="default" :disabled="controlsDisabled" @mousedown="startContinuousChange('azimuth', -1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
             <VIcon>mdi-chevron-left</VIcon>
           </VBtn>
           <div class="elevation-buttons">
-            <VBtn color="primary" icon size="default" @mousedown="startContinuousChange('elevation', 1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
+            <VBtn color="primary" icon size="default" :disabled="controlsDisabled" @mousedown="startContinuousChange('elevation', 1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
               <VIcon>mdi-chevron-up</VIcon>
             </VBtn>
-            <VBtn color="primary" icon size="default" @mousedown="startContinuousChange('elevation', -1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
+            <VBtn color="primary" icon size="default" :disabled="controlsDisabled" @mousedown="startContinuousChange('elevation', -1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
               <VIcon>mdi-chevron-down</VIcon>
             </VBtn>
           </div>
-          <VBtn color="primary" icon size="default" @mousedown="startContinuousChange('azimuth', 1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
+          <VBtn color="primary" icon size="default" :disabled="controlsDisabled" @mousedown="startContinuousChange('azimuth', 1)" @mouseup="stopContinuousChange" @mouseleave="stopContinuousChange">
             <VIcon>mdi-chevron-right</VIcon>
           </VBtn>
         </div>
 
         <div class="power-row">
-          <VBtnToggle v-model="power" mandatory color="primary" variant="outlined" :disabled="antennaWaitingParams">
+          <VBtnToggle v-model="power" mandatory color="primary" variant="outlined" :disabled="controlsDisabled">
             <VBtn :value="false">
               <VIcon start>mdi-power-off</VIcon>
               {{ t('Off') }}
@@ -924,6 +927,11 @@ const antennaWaitingParams = computed(() =>
   sinelinkStore.antennaConnected && sinelinkStore.antennaHeartbeatReceived && !sinelinkStore.antennaParamsLoaded
 );
 
+// Controls disabled: during connecting or waiting for params
+const controlsDisabled = computed(() =>
+  sinelinkStore.antennaConnecting || antennaWaitingParams.value || (sinelinkStore.antennaConnected && !sinelinkStore.antennaParamsLoaded)
+);
+
 // Auto power OFF when antenna connects, ON when params loaded
 watch(() => sinelinkStore.antennaConnected, (connected) => {
   if (connected) {
@@ -937,8 +945,24 @@ watch(() => sinelinkStore.antennaParamsLoaded, (loaded) => {
     setAzimuthDegrees(0);
     setElevationDegrees(0);
     power.value = true;
+    // Auto set MANUAL mode after params loaded
+    sinelinkStore.setTrackerMode(0);
   }
 });
+
+// Auto-connect antenna on startup if saved settings exist
+if (sinelinkStore.antennaPort || sinelinkStore.antennaUdpHost) {
+  setTimeout(() => {
+    if (!sinelinkStore.antennaConnected && !sinelinkStore.antennaConnecting) {
+      // Enable rotator if not already
+      if (rotatorStore && !rotatorStore.rotatorEnabled) {
+        rotatorStore.rotatorEnabled = true;
+        rotatorStore.controlMode = 'mavlink';
+      }
+      sinelinkStore.connectAntenna();
+    }
+  }, 1500);
+}
 
 // AntennaTracker helpers
 const trackerModeName = computed(() => {

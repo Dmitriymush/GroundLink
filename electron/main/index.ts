@@ -28,14 +28,63 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 
-let win = null;
+let win: BrowserWindow | null = null;
+let antennaStartupWin: BrowserWindow | null = null;
 const preload = join(__dirname, "../preload/index.js");
 const url = process.env.VITE_DEV_SERVER_URL;
 const indexHtml = join(process.env.DIST, "index.html");
 
-async function createWindow() {
+/**
+ * Create the small antenna control window (primary window on startup)
+ */
+function createAntennaStartupWindow() {
+  antennaStartupWin = new BrowserWindow({
+    width: 420,
+    height: 700,
+    minWidth: 300,
+    minHeight: 400,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    title: "Antenna Control",
+    icon: join(process.env.VITE_PUBLIC, "favicon.ico"),
+    webPreferences: {
+      preload,
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  // Register IPC for all workers
+  setChildWindow(antennaStartupWin);
+  setRotatorChildWindow(antennaStartupWin);
+  setMavlinkChildWindow(antennaStartupWin);
+  setSinelinkChildWindow(antennaStartupWin);
+  setAntennaMavlinkChildWindow(antennaStartupWin);
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    antennaStartupWin.loadURL(`${url}#/antenna-floating`);
+    antennaStartupWin.webContents.openDevTools();
+  } else {
+    antennaStartupWin.loadFile(indexHtml, { hash: "/antenna-floating" });
+  }
+
+  antennaStartupWin.on("closed", () => {
+    antennaStartupWin = null;
+  });
+}
+
+/**
+ * Create the main full window (opened on demand via settings icon)
+ */
+async function createMainWindow() {
+  if (win && !win.isDestroyed()) {
+    win.focus();
+    return;
+  }
+
   win = new BrowserWindow({
-    title: "Main window",
+    title: "GroundLink",
     icon: join(process.env.VITE_PUBLIC, "favicon.ico"),
     webPreferences: {
       preload,
@@ -51,10 +100,10 @@ async function createWindow() {
   setAntennaMavlinkChildWindow(win);
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    win.loadURL(url);
+    win.loadURL(`${url}#/antenna-controll`);
     win.webContents.openDevTools();
   } else {
-    win.loadFile(indexHtml);
+    win.loadFile(indexHtml, { hash: "/antenna-controll" });
   }
 
   win.webContents.on("did-finish-load", () => {
@@ -65,6 +114,10 @@ async function createWindow() {
     if (url.startsWith("https:")) shell.openExternal(url);
     return { action: "deny" };
   });
+
+  win.on("closed", () => {
+    win = null;
+  });
 }
 
 app.whenReady().then(() => {
@@ -72,7 +125,8 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'geolocation');
   });
-  createWindow();
+  // Start with small antenna control window
+  createAntennaStartupWindow();
 });
 
 app.on("window-all-closed", () => {
@@ -106,7 +160,7 @@ app.on("activate", () => {
   if (allWindows.length) {
     allWindows[0].focus();
   } else {
-    createWindow();
+    createAntennaStartupWindow();
   }
 });
 
@@ -177,6 +231,11 @@ ipcMain.handle("open-antenna-floating", (_, options?: { width?: number; height?:
   antennaFloatingWin.on("closed", () => {
     antennaFloatingWin = null;
   });
+});
+
+// Open main window from antenna startup window (settings icon)
+ipcMain.handle("open-main-window", () => {
+  createMainWindow();
 });
 
 ipcMain.handle("set-window-opacity", (event, opacity: number) => {

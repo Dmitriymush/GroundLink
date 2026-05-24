@@ -77,11 +77,11 @@ export interface AntennaMavlinkConfig {
 }
 
 export const DEFAULT_ANTENNA_MAVLINK_CONFIG: AntennaMavlinkConfig = {
-  transport: 'serial',
+  transport: 'udp',
   portPath: '',
   baudRate: 57600,
   udpHost: '127.0.0.1',
-  udpPort: 14550,
+  udpPort: 24448,
   sendIntervalMs: 500,
   targetSystemId: 2,
   targetComponentId: 0,

@@ -107,11 +107,16 @@ export class MavlinkSerialBuilder {
    * v2 header: [0xFD] [len] [incompat_flags] [compat_flags] [seq] [sysid] [compid] [msgid_lo] [msgid_mid] [msgid_hi]
    */
   buildFrame(msgId: number, payload: Uint8Array): Buffer {
-    const frame = Buffer.alloc(MAVLINK_V2_HEADER_LEN + payload.length + 2);
+    // MAVLink v2 payload truncation: remove trailing zeros
+    let truncLen = payload.length;
+    while (truncLen > 0 && payload[truncLen - 1] === 0) truncLen--;
+    if (truncLen === 0) truncLen = 1; // at least 1 byte
+
+    const frame = Buffer.alloc(MAVLINK_V2_HEADER_LEN + truncLen + 2);
 
     // v2 Header
     frame[0] = MAVLINK_STX_V2;
-    frame[1] = payload.length;
+    frame[1] = truncLen; // truncated length
     frame[2] = 0; // incompat_flags
     frame[3] = 0; // compat_flags
     frame[4] = this.seq++ & 0xFF;
@@ -121,15 +126,15 @@ export class MavlinkSerialBuilder {
     frame[8] = (msgId >> 8) & 0xFF;  // msgid mid
     frame[9] = (msgId >> 16) & 0xFF; // msgid high
 
-    // Payload
-    payload.forEach((b, i) => { frame[MAVLINK_V2_HEADER_LEN + i] = b; });
+    // Payload (truncated)
+    for (let i = 0; i < truncLen; i++) frame[MAVLINK_V2_HEADER_LEN + i] = payload[i];
 
-    // CRC (over header[1..9] + payload)
+    // CRC (over header[1..9] + truncated payload)
     const crcExtra = CRC_EXTRAS[msgId] ?? 0;
-    const crcData = frame.subarray(1, MAVLINK_V2_HEADER_LEN + payload.length);
+    const crcData = frame.subarray(1, MAVLINK_V2_HEADER_LEN + truncLen);
     const crc = crcCalculate(crcData, crcExtra);
-    frame[MAVLINK_V2_HEADER_LEN + payload.length] = crc & 0xFF;
-    frame[MAVLINK_V2_HEADER_LEN + payload.length + 1] = (crc >> 8) & 0xFF;
+    frame[MAVLINK_V2_HEADER_LEN + truncLen] = crc & 0xFF;
+    frame[MAVLINK_V2_HEADER_LEN + truncLen + 1] = (crc >> 8) & 0xFF;
 
     return frame;
   }

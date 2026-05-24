@@ -2,8 +2,8 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 
 export const useMenuStore = defineStore("menu", () => {
-  const isCollapsed = ref(window.innerWidth < 1000);
-  const isManualCollapse = ref(false);
+  const isCollapsed = ref(true);
+  const isManualCollapse = ref(true);
 
   const toggleMenu = () => {
     isManualCollapse.value = !isManualCollapse.value;

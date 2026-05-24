@@ -23,6 +23,15 @@
             icon
             size="x-small"
             variant="text"
+            @click="openMainWindow"
+            :title="t('Settings')"
+          >
+            <VIcon size="16">mdi-cog</VIcon>
+          </VBtn>
+          <VBtn
+            icon
+            size="x-small"
+            variant="text"
             @click="closeWindow"
             :title="t('Close')"
           >
@@ -57,6 +66,10 @@ const opacityPercent = ref(100);
 watch(opacityPercent, (val) => {
   ipcRenderer.invoke('set-window-opacity', val / 100);
 });
+
+const openMainWindow = () => {
+  ipcRenderer.invoke('open-main-window');
+};
 
 const closeWindow = () => {
   ipcRenderer.invoke('close-current-window');
