@@ -60,6 +60,11 @@ const isVulikControllAvalible = computed(() =>
     />
 
     <NavigationMenuItem
+      :title="t('Camera')"
+      :href="ROUTERS.CAMERA_CONTROLL"
+    />
+
+    <NavigationMenuItem
       v-if="isBeeAvalible"
       :title="t('Bee')"
       :href="ROUTERS.BEE"

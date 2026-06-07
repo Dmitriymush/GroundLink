@@ -10,4 +10,6 @@ export const ROUTERS = {
   CAN_CONTROLL: "/can-controll",
   VULIK_CONTROLL: "/vulik-controll",
   ANTENNA_FLOATING: "/antenna-floating",
+  CAMERA_CONTROLL: "/camera-controll",
+  CAMERA_FLOATING: "/camera-floating",
 };

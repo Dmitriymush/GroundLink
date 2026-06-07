@@ -6,6 +6,7 @@ import { rotatorWorker, setRotatorChildWindow, stopRotatorWorker } from "./rotat
 import { mavlinkWorker, setMavlinkChildWindow, stopMavlinkWorker } from "./mavlink_worker";
 import { sinelinkWorker, setSinelinkChildWindow, stopSinelinkWorker } from "./sinelink_worker";
 import { antennaMavlinkWorker, setAntennaMavlinkChildWindow, stopAntennaMavlinkWorker } from "./antenna_mavlink_worker";
+import { cameraWorker, setCameraChildWindow, stopCameraWorker } from "./camera_worker";
 
 try {
   const nodeHid = require("node-hid");
@@ -61,6 +62,7 @@ function createAntennaStartupWindow() {
   setMavlinkChildWindow(antennaStartupWin);
   setSinelinkChildWindow(antennaStartupWin);
   setAntennaMavlinkChildWindow(antennaStartupWin);
+  setCameraChildWindow(antennaStartupWin);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     antennaStartupWin.loadURL(`${url}#/antenna-floating`);
@@ -98,6 +100,7 @@ async function createMainWindow() {
   setMavlinkChildWindow(win);
   setSinelinkChildWindow(win);
   setAntennaMavlinkChildWindow(win);
+  setCameraChildWindow(win);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(`${url}#/antenna-controll`);
@@ -137,6 +140,7 @@ app.on("window-all-closed", () => {
     stopMavlinkWorker();
     stopSinelinkWorker();
     stopAntennaMavlinkWorker();
+    stopCameraWorker();
     app.quit();
   }
 });
@@ -146,6 +150,7 @@ app.on("before-quit", () => {
   stopRotatorWorker();
   stopSinelinkWorker();
   stopAntennaMavlinkWorker();
+  stopCameraWorker();
 });
 
 app.on("second-instance", () => {
@@ -169,6 +174,7 @@ rotatorWorker({ ipcMain });
 mavlinkWorker({ ipcMain });
 sinelinkWorker({ ipcMain });
 antennaMavlinkWorker({ ipcMain });
+cameraWorker({ ipcMain });
 
 ipcMain.handle("open-win", (_, arg) => {
   const childWindow = new BrowserWindow({
@@ -236,6 +242,43 @@ ipcMain.handle("open-antenna-floating", (_, options?: { width?: number; height?:
 // Open main window from antenna startup window (settings icon)
 ipcMain.handle("open-main-window", () => {
   createMainWindow();
+});
+
+// Open camera floating window
+let cameraFloatingWin: BrowserWindow | null = null;
+ipcMain.handle("open-camera-floating", () => {
+  if (cameraFloatingWin && !cameraFloatingWin.isDestroyed()) {
+    cameraFloatingWin.focus();
+    return;
+  }
+
+  cameraFloatingWin = new BrowserWindow({
+    width: 640,
+    height: 520,
+    minWidth: 400,
+    minHeight: 350,
+    resizable: true,
+    minimizable: true,
+    title: "Camera Control",
+    icon: join(process.env.VITE_PUBLIC, "favicon.ico"),
+    webPreferences: {
+      preload,
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  setCameraChildWindow(cameraFloatingWin);
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    cameraFloatingWin.loadURL(`${url}#/camera-floating`);
+  } else {
+    cameraFloatingWin.loadFile(indexHtml, { hash: "/camera-floating" });
+  }
+
+  cameraFloatingWin.on("closed", () => {
+    cameraFloatingWin = null;
+  });
 });
 
 ipcMain.handle("set-window-opacity", (event, opacity: number) => {

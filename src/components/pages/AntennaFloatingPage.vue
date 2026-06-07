@@ -23,6 +23,15 @@
             icon
             size="x-small"
             variant="text"
+            @click="openCameraWindow"
+            :title="t('Camera')"
+          >
+            <VIcon size="16">mdi-camera</VIcon>
+          </VBtn>
+          <VBtn
+            icon
+            size="x-small"
+            variant="text"
             @click="openMainWindow"
             :title="t('Settings')"
           >
@@ -69,6 +78,10 @@ watch(opacityPercent, (val) => {
 
 const openMainWindow = () => {
   ipcRenderer.invoke('open-main-window');
+};
+
+const openCameraWindow = () => {
+  ipcRenderer.invoke('open-camera-floating');
 };
 
 const closeWindow = () => {

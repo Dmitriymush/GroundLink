@@ -9,6 +9,8 @@ import CanControllPage from "@/components/pages/CanControllPage.vue";
 import VulikControllPage from "@/components/pages/VulikControllPage.vue";
 import BombPage from "@/components/pages/BombPage.vue";
 import AntennaFloatingPage from "@/components/pages/AntennaFloatingPage.vue";
+import CameraFloatingPage from "@/components/pages/CameraFloatingPage.vue";
+import CameraControllPage from "@/components/pages/CameraControllPage.vue";
 
 import { ROUTERS } from "./const";
 
@@ -27,4 +29,6 @@ export const routes = [
   { path: ROUTERS.VULIK_CONTROLL, component: VulikControllPage },
   { path: ROUTERS.DETONATE, component: BombPage },
   { path: ROUTERS.ANTENNA_FLOATING, component: AntennaFloatingPage },
+  { path: ROUTERS.CAMERA_CONTROLL, component: CameraControllPage },
+  { path: ROUTERS.CAMERA_FLOATING, component: CameraFloatingPage },
 ];

@@ -26,7 +26,7 @@ const { restoreState } = useDroneControll();
 const { restoreValues } = useMixerStettings();
 const appSettingsStore = useAppSeetingsStore();
 const route = useRoute();
-const isFloatingWindow = computed(() => route.path === '/antenna-floating');
+const isFloatingWindow = computed(() => route.path === '/antenna-floating' || route.path === '/camera-floating');
 
 virtualJR.socket?.connect(hostStorage.value, secondPort.value);
 
