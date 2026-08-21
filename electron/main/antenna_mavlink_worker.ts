@@ -75,7 +75,7 @@ const state: WorkerState = {
   rcOverrideActive: false,
   servoParams: {
     servo1Min: 350, servo1Max: 2350, servo1Trim: 1350,
-    servo2Min: 900, servo2Max: 2200, servo2Trim: 1420,
+    servo2Min: 350, servo2Max: 2350, servo2Trim: 1350,
     loaded: false,
   },
   paramsRequested: false,

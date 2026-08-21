@@ -561,7 +561,7 @@
           :azimuth="azimuthDegrees"
           :elevation="elevationDegrees"
           :arrow-color="power ? '#ff4444' : '#666666'"
-          :tracker-azimuth="sinelinkStore.antennaHeartbeatReceived ? sinelinkStore.trackerYaw : -1"
+          :tracker-azimuth="sinelinkStore.antennaHeartbeatReceived ? sinelinkStore.trackerAzimuth : -1"
           :interactive="!controlsDisabled"
           @update:azimuth="setAzimuthDegrees"
         />
@@ -573,7 +573,7 @@
       <!-- Tracker compass reading -->
       <div v-if="sinelinkStore.antennaHeartbeatReceived" class="tracker-compass-info">
         <span class="tracker-compass-label">Compass:</span>
-        <span class="tracker-compass-value">{{ sinelinkStore.trackerYaw.toFixed(1) }}°</span>
+        <span class="tracker-compass-value">{{ sinelinkStore.trackerAzimuth.toFixed(1) }}°</span>
         <span class="tracker-compass-label">Pitch:</span>
         <span class="tracker-compass-value">{{ sinelinkStore.trackerPitch.toFixed(1) }}°</span>
       </div>

@@ -83,6 +83,9 @@ export const useSinelinkStore = defineStore('sinelink', () => {
   const trackerServo2 = ref(0);
   const trackerYaw = ref(0);    // compass heading from ATTITUDE (degrees 0-360)
   const trackerPitch = ref(0);  // pitch from ATTITUDE (degrees)
+  // Servo1 calibration (loaded from tracker params, defaults match hardware)
+  const servo1Min = ref(350);
+  const servo1Max = ref(2350);
   const lastCommandAck = ref<{ command: number; result: number } | null>(null);
 
   // Drone position
@@ -118,6 +121,19 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     positionValid.value &&
     hasGcsPosition.value
   );
+
+  /**
+   * Actual antenna azimuth (UI degrees 0-360) derived from servo1 position.
+   * ATTITUDE yaw drifts (tracker has no absolute heading reference), while the
+   * yaw servo is an absolute positioner — inverse of the worker's azimuth mapping.
+   */
+  const trackerAzimuth = computed(() => {
+    const s1 = trackerServo1.value;
+    if (!s1) return trackerYaw.value; // no SERVO_OUTPUT_RAW yet — fall back to attitude
+    const norm = (servo1Max.value - s1) / (servo1Max.value - servo1Min.value);
+    const protocolDeg = norm * 360 - 180;
+    return ((protocolDeg % 360) + 360) % 360;
+  });
 
   // ============================================================
   // IPC — SINELINK (input)
@@ -218,6 +234,8 @@ export const useSinelinkStore = defineStore('sinelink', () => {
 
       case 'servo-params':
         antennaParamsLoaded.value = true;
+        servo1Min.value = response.servo1Min;
+        servo1Max.value = response.servo1Max;
         console.log(`[Sinelink Store] Servo params loaded: S1=${response.servo1Min}-${response.servo1Max}(${response.servo1Trim}) S2=${response.servo2Min}-${response.servo2Max}(${response.servo2Trim})`);
         break;
 
@@ -429,6 +447,7 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     gcsPosition,
     hasGcsPosition,
     isTracking,
+    trackerAzimuth,
 
     // Actions
     connectSinelink,
