@@ -4,6 +4,7 @@
       <!-- Drag handle / toolbar -->
       <div class="floating-toolbar" style="-webkit-app-region: drag;">
         <span class="floating-title">{{ t('Antenna Control') }}</span>
+        <span class="floating-version">v{{ appVersion }}</span>
         <div style="-webkit-app-region: no-drag;" class="toolbar-actions">
           <VIcon
             size="16"
@@ -66,6 +67,8 @@ import { ipcRenderer } from 'electron';
 
 const t = useT();
 
+const appVersion = __APP_VERSION__;
+
 const rootRef = ref<HTMLElement | null>(null);
 const { height: rootHeight } = useElementSize(rootRef);
 const isCompact = computed(() => rootHeight.value < 400);
@@ -116,6 +119,13 @@ const closeWindow = () => {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.6);
   white-space: nowrap;
+}
+
+.floating-version {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+  margin-left: 4px;
 }
 
 .toolbar-actions {

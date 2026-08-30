@@ -1,3 +1,12 @@
+## 2026-08-31
+
+[v1.1.0]
+
+- 🔖 Release version 1.1.0
+- ✨ Product version displayed in main menu and floating antenna window
+- ✨ Slim collapsed rotator panel in floating window (thin status strip instead of full header)
+- 🔧 Antenna tracker pitch calibration tool (`scripts/antenna-pitch-calibration.js`) + guide
+
 ## 2025-03-28
 
 [v1.8.5-all]

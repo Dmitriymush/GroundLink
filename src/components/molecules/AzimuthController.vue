@@ -2,8 +2,24 @@
   <div class="azimuth-controller">
     <!-- Top: Rotator panel (collapsible) -->
     <div class="rotator-panel" v-if="rotatorStore">
+      <!-- Slim collapsed strip (floating window only) -->
+      <div
+        v-if="isFloatingInstance && !panelExpanded"
+        class="rotator-strip"
+        @click="panelExpanded = true"
+      >
+        <span class="strip-dot" :class="{ 'strip-dot--on': stripConnected }" />
+        <span class="strip-label">{{ stripLabel }}</span>
+        <VIcon
+          v-if="(controlMode === 'mavlink' && mavlinkStore.isTracking) || (controlMode === 'mavlink-serial' && sinelinkStore.isTracking)"
+          color="success"
+          size="12"
+        >mdi-crosshairs-gps</VIcon>
+        <VIcon size="14" class="expand-icon">mdi-chevron-down</VIcon>
+      </div>
+
       <!-- Header: Rotator switch + mode toggle + expand arrow -->
-      <div class="rotator-header" @click="panelExpanded = !panelExpanded">
+      <div v-else class="rotator-header" @click="panelExpanded = !panelExpanded">
         <VSwitch
           v-model="rotatorEnabledModel"
           :label="t('Rotator')"
@@ -914,6 +930,19 @@ const fetchGcsLocation = async () => {
 const mavlinkConnected = computed(() => mavlinkStore.connected);
 const mavlinkPositionReceived = computed(() => mavlinkStore.positionReceived);
 
+// Slim strip (floating window): connection dot + mode label
+const stripConnected = computed(() => {
+  if (!rotatorEnabled.value) return false;
+  if (controlMode.value === 'udp') return rotatorTelemetryConnected.value;
+  if (controlMode.value === 'mavlink') return mavlinkPositionReceived.value;
+  return sinelinkStore.sinelinkConnected;
+});
+
+const stripLabel = computed(() => {
+  if (!rotatorEnabled.value) return 'OFF';
+  return { udp: 'UDP', mavlink: 'MAVLINK', 'mavlink-serial': 'SINELINK' }[controlMode.value] ?? '';
+});
+
 const toggleMavlinkConnection = () => {
   if (mavlinkStore.connected) {
     mavlinkStore.disconnect();
@@ -1178,6 +1207,38 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   margin-left: 8px;
+}
+
+/* Slim collapsed strip (floating window) */
+.rotator-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 2px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.strip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  background: rgba(128, 128, 128, 0.6);
+  flex-shrink: 0;
+}
+
+.strip-dot--on {
+  background: #4caf50;
+  box-shadow: 0 0 4px #4caf50;
+}
+
+.strip-label {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
 }
 
 .status-dot-inline {

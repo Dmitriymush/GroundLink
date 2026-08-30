@@ -11,6 +11,8 @@ import { useMenuStore } from "@/store/menu-store";
 const menuStore = useMenuStore();
 const t = useT();
 
+const appVersion = __APP_VERSION__;
+
 const allowedFeatures = getAllowedFeatures();
 
 console.log(allowedFeatures);
@@ -92,6 +94,7 @@ const isVulikControllAvalible = computed(() =>
 
     <v-divider />
     <VideoWindowContainer />
+    <div class="menu-version">v{{ appVersion }}</div>
   </v-list>
 </template>
 
@@ -120,5 +123,17 @@ const isVulikControllAvalible = computed(() =>
   width: 0;
   height: 0;
   overflow: hidden;
+}
+
+.menu-version {
+  margin-top: auto;
+  padding: 8px 16px;
+  font-size: 11px;
+  opacity: 0.45;
+  transition: opacity 0.3s ease;
+}
+
+.menu--collapsed .menu-version {
+  opacity: 0;
 }
 </style>
