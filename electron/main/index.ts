@@ -1,12 +1,25 @@
 import { app, BrowserWindow, shell, ipcMain, session } from "electron";
 import { release } from "node:os";
 import { join } from "node:path";
+import log from "electron-log/main";
 import { hidWorker, setChildWindow, stopHidWorker } from "./hid_worker";
 import { rotatorWorker, setRotatorChildWindow, stopRotatorWorker } from "./rotator_worker";
 import { mavlinkWorker, setMavlinkChildWindow, stopMavlinkWorker } from "./mavlink_worker";
 import { sinelinkWorker, setSinelinkChildWindow, stopSinelinkWorker } from "./sinelink_worker";
 import { antennaMavlinkWorker, setAntennaMavlinkChildWindow, stopAntennaMavlinkWorker } from "./antenna_mavlink_worker";
 import { cameraWorker, setCameraChildWindow, stopCameraWorker } from "./camera_worker";
+
+// Production logging: mirror all main-process console output to a rotating
+// timestamped log file (Windows: %APPDATA%\GroundLink\logs\main.log)
+if (app.isPackaged) {
+  log.initialize();
+  log.transports.file.level = "info";
+  log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}";
+  Object.assign(console, log.functions);
+  process.on("uncaughtException", (e) => log.error("[Main] uncaughtException:", e));
+  process.on("unhandledRejection", (e) => log.error("[Main] unhandledRejection:", e));
+  log.info(`[Main] GroundLink v${app.getVersion()} starting (log file: ${log.transports.file.getFile().path})`);
+}
 
 try {
   const nodeHid = require("node-hid");
