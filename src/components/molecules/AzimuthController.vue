@@ -290,6 +290,9 @@
               <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-home-map-marker" @click="setTrackerHomeFromGcs">
                 Set Home (GCS)
               </VBtn>
+              <span v-if="sinelinkStore.trackerHome" class="servo-info home-confirmed">
+                ✓ {{ sinelinkStore.trackerHome.lat.toFixed(5) }}, {{ sinelinkStore.trackerHome.lon.toFixed(5) }}, {{ sinelinkStore.trackerHome.alt.toFixed(0) }}m
+              </span>
               <span v-if="sinelinkStore.trackerServo1 || sinelinkStore.trackerServo2" class="servo-info">
                 S1: {{ sinelinkStore.trackerServo1 }} | S2: {{ sinelinkStore.trackerServo2 }}
               </span>
@@ -472,6 +475,9 @@
               <VBtn size="x-small" variant="text" color="primary" prepend-icon="mdi-home-map-marker" @click="setTrackerHomeFromGcs">
                 Set Home (GCS)
               </VBtn>
+              <span v-if="sinelinkStore.trackerHome" class="servo-info home-confirmed">
+                ✓ {{ sinelinkStore.trackerHome.lat.toFixed(5) }}, {{ sinelinkStore.trackerHome.lon.toFixed(5) }}, {{ sinelinkStore.trackerHome.alt.toFixed(0) }}m
+              </span>
               <span v-if="sinelinkStore.trackerServo1 || sinelinkStore.trackerServo2" class="servo-info">
                 S1: {{ sinelinkStore.trackerServo1 }} | S2: {{ sinelinkStore.trackerServo2 }}
               </span>
@@ -1239,6 +1245,10 @@ onBeforeUnmount(() => {
   letter-spacing: 0.5px;
   color: rgba(255, 255, 255, 0.45);
   white-space: nowrap;
+}
+
+.home-confirmed {
+  color: #4caf50;
 }
 
 .status-dot-inline {

@@ -29,6 +29,7 @@ import {
   MAVLINK_MSG_ID_ATTITUDE,
   MAVLINK_MSG_ID_SERVO_OUTPUT_RAW,
   MAVLINK_MSG_ID_COMMAND_ACK,
+  MAVLINK_MSG_ID_HOME_POSITION,
 } from '../../src/services/sinelink/mavlink-serial';
 
 interface WorkerState {
@@ -55,6 +56,10 @@ interface WorkerState {
     loaded: boolean;
   };
   paramsRequested: boolean;
+  /** Tracker mode from last received heartbeat (null until first heartbeat) */
+  lastHeartbeatMode: number | null;
+  /** Last HOME_POSITION reported by the tracker */
+  lastHome: { lat: number; lon: number; altM: number } | null;
 }
 
 const state: WorkerState = {
@@ -79,6 +84,8 @@ const state: WorkerState = {
     loaded: false,
   },
   paramsRequested: false,
+  lastHeartbeatMode: null,
+  lastHome: null,
 };
 
 function sendToRenderer(response: AntennaMavlinkIPCResponse): void {
@@ -220,40 +227,102 @@ function sendArmAndModeOnce(targetSystem: number, compId: number, mode: number):
 /**
  * Reliable SET_MODE — ARM + SET_MODE via STOP transition.
  * ArduPilot AntennaTracker requires going through STOP for most transitions.
- * Sends: ARM → STOP → ARM → target_mode (repeated for UDP reliability)
+ * The UDP link (mavlink-router / WIFI232) drops packets, so fire-and-forget is
+ * not enough: retry the whole sequence until the tracker's heartbeat confirms
+ * the target mode.
  */
+const MODE_CONFIRM_ATTEMPTS = 5;
+const MODE_CONFIRM_TIMEOUT_MS = 2500; // heartbeats arrive at ~1Hz
+
 async function setModeReliable(targetSystem: number, mode: number): Promise<void> {
   if (!state.connected || !state.config) return;
   const compId = state.config.targetComponentId;
 
   console.log(`[AntennaMavlink] Set mode: ${mode}`);
 
-  if (mode === 1) {
-    // STOP — direct, always works
+  for (let attempt = 1; attempt <= MODE_CONFIRM_ATTEMPTS; attempt++) {
+    // Step 1: STOP staging (skip when STOP itself is the target)
+    if (mode !== 1) {
+      for (let i = 0; i < 3; i++) {
+        sendArmAndModeOnce(targetSystem, compId, 1);
+        await sleep(100);
+      }
+      await sleep(500);
+    }
+
+    // Step 2: Target mode
     for (let i = 0; i < 5; i++) {
-      sendArmAndModeOnce(targetSystem, compId, 1);
+      sendArmAndModeOnce(targetSystem, compId, mode);
       await sleep(100);
     }
-    return;
-  }
 
-  // For all other modes: STOP first, then target
-  // Step 1: STOP
-  for (let i = 0; i < 3; i++) {
-    sendArmAndModeOnce(targetSystem, compId, 1);
-    await sleep(100);
+    // Step 3: Wait for heartbeat confirmation
+    const t0 = Date.now();
+    while (Date.now() - t0 < MODE_CONFIRM_TIMEOUT_MS) {
+      if (state.lastHeartbeatMode === mode) {
+        console.log(`[AntennaMavlink] Mode ${mode} confirmed by heartbeat (attempt ${attempt})`);
+        return;
+      }
+      await sleep(100);
+    }
+    console.warn(`[AntennaMavlink] Mode ${mode} not confirmed (heartbeat=${state.lastHeartbeatMode}), attempt ${attempt}/${MODE_CONFIRM_ATTEMPTS}`);
   }
-  await sleep(500);
-
-  // Step 2: Target mode
-  for (let i = 0; i < 5; i++) {
-    sendArmAndModeOnce(targetSystem, compId, mode);
-    await sleep(100);
-  }
+  console.error(`[AntennaMavlink] Mode ${mode} NOT confirmed after ${MODE_CONFIRM_ATTEMPTS} attempts`);
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Reliable set-home for ArduPilot AntennaTracker without GPS.
+ * The firmware silently ignores DO_SET_HOME until an EKF origin exists, so each
+ * attempt sends SET_GPS_GLOBAL_ORIGIN first, then DO_SET_HOME, then verifies by
+ * requesting HOME_POSITION. Retries because the UDP link drops packets.
+ * Note: COMMAND_LONG carries lat/lon as float32 → ~1m rounding, tolerance 5e-5°.
+ */
+const HOME_CONFIRM_ATTEMPTS = 8;
+
+async function setHomeReliable(lat: number, lon: number, altM: number): Promise<void> {
+  if (!state.connected || !state.config) return;
+  const targetSys = state.config.targetSystemId;
+  const compId = state.config.targetComponentId;
+
+  console.log(`[AntennaMavlink] Set home: ${lat}, ${lon}, ${altM}m (origin + home + verify)`);
+
+  const matches = (h: { lat: number; lon: number; altM: number } | null): boolean =>
+    !!h && Math.abs(h.lat - lat) < 5e-5 && Math.abs(h.lon - lon) < 5e-5 && Math.abs(h.altM - altM) < 2;
+
+  for (let attempt = 1; attempt <= HOME_CONFIRM_ATTEMPTS; attempt++) {
+    try {
+      // EKF origin first — DO_SET_HOME is silently ignored without it
+      writeFrame(state.mavBuilder.buildSetGpsGlobalOrigin(targetSys, lat, lon, altM));
+      await sleep(300);
+      // Primary: COMMAND_INT to component 1 — the exact format Mission Planner uses
+      writeFrame(state.mavBuilder.buildSetHomeInt(targetSys, lat, lon, altM));
+      await sleep(300);
+      // Fallback for firmwares that only handle COMMAND_LONG
+      writeFrame(state.mavBuilder.buildSetHome(targetSys, compId, lat, lon, altM));
+      await sleep(700);
+      // Verify via HOME_POSITION
+      state.lastHome = null;
+      writeFrame(state.mavBuilder.buildRequestMessage(targetSys, compId, MAVLINK_MSG_ID_HOME_POSITION));
+    } catch (e) {
+      console.error('[AntennaMavlink] Set home write failed:', e);
+    }
+
+    const t0 = Date.now();
+    while (Date.now() - t0 < 2500) {
+      if (matches(state.lastHome)) {
+        const h = state.lastHome!;
+        console.log(`[AntennaMavlink] Home confirmed (attempt ${attempt}): ${h.lat}, ${h.lon}, ${h.altM}m`);
+        return;
+      }
+      await sleep(150);
+    }
+    console.warn(`[AntennaMavlink] Home not confirmed (got ${JSON.stringify(state.lastHome)}), attempt ${attempt}/${HOME_CONFIRM_ATTEMPTS}`);
+  }
+  console.error(`[AntennaMavlink] Home NOT confirmed after ${HOME_CONFIRM_ATTEMPTS} attempts`);
 }
 
 /**
@@ -266,6 +335,7 @@ function handleIncomingData(data: Buffer): void {
       const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
       const customMode = view.getUint32(0, true);
       const baseMode = frame.payload[6];
+      state.lastHeartbeatMode = customMode;
       sendToRenderer({
         type: 'heartbeat-received',
         systemId: frame.systemId,
@@ -296,6 +366,15 @@ function handleIncomingData(data: Buffer): void {
         servo3: frame.payload.length >= 10 ? view.getUint16(8, true) : 0,
         servo4: frame.payload.length >= 12 ? view.getUint16(10, true) : 0,
       });
+    } else if (frame.msgId === MAVLINK_MSG_ID_HOME_POSITION && frame.payload.length >= 12) {
+      const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
+      const home = {
+        lat: view.getInt32(0, true) / 1e7,
+        lon: view.getInt32(4, true) / 1e7,
+        altM: view.getInt32(8, true) / 1000,
+      };
+      state.lastHome = home;
+      sendToRenderer({ type: 'home-position', lat: home.lat, lon: home.lon, alt: home.altM });
     } else if (frame.msgId === MAVLINK_MSG_ID_COMMAND_ACK && frame.payload.length >= 3) {
       const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
       const command = view.getUint16(0, true);
@@ -522,6 +601,7 @@ async function disconnect(): Promise<void> {
   state.config = null;
   state.paramsRequested = false;
   state.servoParams.loaded = false;
+  state.lastHeartbeatMode = null;
   state.mavParser.reset();
   sendToRenderer({ type: 'disconnected' });
 }
@@ -590,13 +670,7 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
       }
       break;
     case 'set-home':
-      if (state.connected && state.config) {
-        const homeFrame = state.mavBuilder.buildSetHome(state.config.targetSystemId, state.config.targetComponentId, request.lat, request.lon, request.alt);
-        try {
-          writeFrame(homeFrame);
-          console.log(`[AntennaMavlink] Set home: ${request.lat}, ${request.lon}, ${request.alt}m`);
-        } catch (e) { console.error('[AntennaMavlink] Set home failed:', e); }
-      }
+      await setHomeReliable(request.lat, request.lon, request.alt);
       break;
     case 'forward-position':
       if (state.connected) {

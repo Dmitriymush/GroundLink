@@ -107,6 +107,7 @@ export type AntennaMavlinkIPCResponse =
   | { type: 'attitude'; yaw: number; pitch: number }
   | { type: 'servo-params'; servo1Min: number; servo1Max: number; servo1Trim: number; servo2Min: number; servo2Max: number; servo2Trim: number }
   | { type: 'command-ack'; command: number; result: number }
+  | { type: 'home-position'; lat: number; lon: number; alt: number }
   | { type: 'ports'; ports: SerialPortInfo[] }
   | { type: 'error'; code: string; message: string };
 

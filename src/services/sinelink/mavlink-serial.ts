@@ -28,6 +28,9 @@ export const MAVLINK_MSG_ID_COMMAND_LONG = 76;
 export const MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE = 70;
 export const MAVLINK_MSG_ID_COMMAND_ACK = 77;
 export const MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL = 110;
+export const MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN = 48;
+export const MAVLINK_MSG_ID_COMMAND_INT = 75;
+export const MAVLINK_MSG_ID_HOME_POSITION = 242;
 
 // CRC extras for each message type (from MAVLink spec)
 const CRC_EXTRAS: Record<number, number> = {
@@ -43,6 +46,9 @@ const CRC_EXTRAS: Record<number, number> = {
   [MAVLINK_MSG_ID_COMMAND_LONG]: 152,
   [MAVLINK_MSG_ID_COMMAND_ACK]: 143,
   [MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL]: 84,
+  [MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN]: 41,
+  [MAVLINK_MSG_ID_COMMAND_INT]: 158,
+  [MAVLINK_MSG_ID_HOME_POSITION]: 104,
 };
 
 // MAVLink commands
@@ -244,6 +250,53 @@ export class MavlinkSerialBuilder {
    */
   buildSetHome(targetSystem: number, targetComponent: number, lat: number, lon: number, altM: number): Buffer {
     return this.buildCommandLong(targetSystem, targetComponent, MAV_CMD_DO_SET_HOME, 0, 0, 0, 0, lat, lon, altM);
+  }
+
+  /**
+   * Build DO_SET_HOME via COMMAND_INT (msgId=75) — the format Mission Planner uses
+   * for "Set Home Here" (target_component=1, frame=MAV_FRAME_GLOBAL, lat/lon as
+   * exact int32 degE7 instead of lossy float32).
+   * Wire order: param1-4(f32), x(i32 degE7), y(i32 degE7), z(f32 m),
+   * command(u16), target_system(u8), target_component(u8), frame(u8), current(u8), autocontinue(u8)
+   */
+  buildSetHomeInt(targetSystem: number, lat: number, lon: number, altM: number): Buffer {
+    const payload = Buffer.alloc(35);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    // param1 = 0 (use specified location), param2-4 = 0
+    view.setInt32(16, Math.round(lat * 1e7), true);
+    view.setInt32(20, Math.round(lon * 1e7), true);
+    view.setFloat32(24, altM, true);
+    view.setUint16(28, MAV_CMD_DO_SET_HOME, true);
+    payload[30] = targetSystem;
+    payload[31] = 1; // MAV_COMP_ID_AUTOPILOT1 — Mission Planner targets component 1
+    payload[32] = 0; // frame = MAV_FRAME_GLOBAL
+    payload[33] = 0; // current
+    payload[34] = 0; // autocontinue
+    return this.buildFrame(MAVLINK_MSG_ID_COMMAND_INT, payload);
+  }
+
+  /**
+   * Build SET_GPS_GLOBAL_ORIGIN (msgId=48) — set EKF origin for GPS-less trackers.
+   * ArduPilot silently refuses DO_SET_HOME until an EKF origin exists, so this
+   * must be sent before set-home on a tracker without GPS.
+   * Wire order: latitude(i32 degE7), longitude(i32 degE7), altitude(i32 mm), target_system(u8)
+   */
+  buildSetGpsGlobalOrigin(targetSystem: number, lat: number, lon: number, altM: number): Buffer {
+    const payload = Buffer.alloc(13);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    view.setInt32(0, Math.round(lat * 1e7), true);
+    view.setInt32(4, Math.round(lon * 1e7), true);
+    view.setInt32(8, Math.round(altM * 1000), true);
+    payload[12] = targetSystem;
+    return this.buildFrame(MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN, payload);
+  }
+
+  /**
+   * Build MAV_CMD_REQUEST_MESSAGE (512) — ask the tracker to send a specific message once.
+   * Used to poll HOME_POSITION (242) for set-home verification.
+   */
+  buildRequestMessage(targetSystem: number, targetComponent: number, msgId: number): Buffer {
+    return this.buildCommandLong(targetSystem, targetComponent, 512, msgId);
   }
 
   /**

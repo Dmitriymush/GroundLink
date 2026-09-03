@@ -83,6 +83,7 @@ export const useSinelinkStore = defineStore('sinelink', () => {
   const trackerServo2 = ref(0);
   const trackerYaw = ref(0);    // compass heading from ATTITUDE (degrees 0-360)
   const trackerPitch = ref(0);  // pitch from ATTITUDE (degrees)
+  const trackerHome = ref<{ lat: number; lon: number; alt: number } | null>(null); // confirmed HOME_POSITION
   const lastCommandAck = ref<{ command: number; result: number } | null>(null);
 
   // Drone position
@@ -223,6 +224,10 @@ export const useSinelinkStore = defineStore('sinelink', () => {
 
       case 'command-ack':
         lastCommandAck.value = { command: response.command, result: response.result };
+        break;
+
+      case 'home-position':
+        trackerHome.value = { lat: response.lat, lon: response.lon, alt: response.alt };
         break;
 
       case 'ports':
@@ -413,6 +418,7 @@ export const useSinelinkStore = defineStore('sinelink', () => {
     trackerServo2,
     trackerYaw,
     trackerPitch,
+    trackerHome,
     lastCommandAck,
 
     // Drone telemetry
