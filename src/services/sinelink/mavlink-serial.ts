@@ -29,6 +29,7 @@ export const MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE = 70;
 export const MAVLINK_MSG_ID_COMMAND_ACK = 77;
 export const MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL = 110;
 export const MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN = 48;
+export const MAVLINK_MSG_ID_REQUEST_DATA_STREAM = 66;
 export const MAVLINK_MSG_ID_COMMAND_INT = 75;
 export const MAVLINK_MSG_ID_HOME_POSITION = 242;
 
@@ -47,6 +48,7 @@ const CRC_EXTRAS: Record<number, number> = {
   [MAVLINK_MSG_ID_COMMAND_ACK]: 143,
   [MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL]: 84,
   [MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN]: 41,
+  [MAVLINK_MSG_ID_REQUEST_DATA_STREAM]: 148,
   [MAVLINK_MSG_ID_COMMAND_INT]: 158,
   [MAVLINK_MSG_ID_HOME_POSITION]: 104,
 };
@@ -297,6 +299,24 @@ export class MavlinkSerialBuilder {
    */
   buildRequestMessage(targetSystem: number, targetComponent: number, msgId: number): Buffer {
     return this.buildCommandLong(targetSystem, targetComponent, 512, msgId);
+  }
+
+  /**
+   * Build REQUEST_DATA_STREAM (msgId=66) — set a telemetry stream group rate.
+   * Used to throttle the tracker's default full-rate telemetry, which otherwise
+   * saturates the slow WIFI232 serial link and starves param responses.
+   * Wire order: req_message_rate(u16), target_system(u8), target_component(u8),
+   * req_stream_id(u8), start_stop(u8)
+   */
+  buildRequestDataStream(targetSystem: number, targetComponent: number, streamId: number, rateHz: number): Buffer {
+    const payload = Buffer.alloc(6);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    view.setUint16(0, rateHz, true);
+    payload[2] = targetSystem;
+    payload[3] = targetComponent;
+    payload[4] = streamId;
+    payload[5] = rateHz > 0 ? 1 : 0; // start_stop
+    return this.buildFrame(MAVLINK_MSG_ID_REQUEST_DATA_STREAM, payload);
   }
 
   /**

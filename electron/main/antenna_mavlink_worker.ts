@@ -49,13 +49,20 @@ interface WorkerState {
   rcOverrideAz: number;  // current RC azimuth PWM (1000-2000)
   rcOverrideEl: number;  // current RC elevation PWM (1000-2000)
   rcOverrideActive: boolean;
-  // Servo calibration from tracker params
+  // Servo + RC calibration from tracker params.
+  // IMPORTANT: servo and RC scales can differ (hardware calibrates SERVOn_* to the
+  // linkage, RCn_* stays at RC defaults). RC_CHANNELS_OVERRIDE values live in the
+  // RC scale; DO_SET_SERVO values live in the servo scale.
   servoParams: {
     servo1Min: number; servo1Max: number; servo1Trim: number;
     servo2Min: number; servo2Max: number; servo2Trim: number;
+    rc1Min: number; rc1Max: number; rc1Trim: number;
+    rc2Min: number; rc2Max: number; rc2Trim: number;
     loaded: boolean;
   };
   paramsRequested: boolean;
+  /** Whether telemetry streams were throttled for this connection */
+  streamsThrottled: boolean;
   /** Tracker mode from last received heartbeat (null until first heartbeat) */
   lastHeartbeatMode: number | null;
   /** Last HOME_POSITION reported by the tracker */
@@ -81,9 +88,12 @@ const state: WorkerState = {
   servoParams: {
     servo1Min: 350, servo1Max: 2350, servo1Trim: 1350,
     servo2Min: 350, servo2Max: 2350, servo2Trim: 1350,
+    rc1Min: 350, rc1Max: 2350, rc1Trim: 1350,
+    rc2Min: 1000, rc2Max: 2000, rc2Trim: 1500,
     loaded: false,
   },
   paramsRequested: false,
+  streamsThrottled: false,
   lastHeartbeatMode: null,
   lastHome: null,
 };
@@ -343,7 +353,8 @@ function handleIncomingData(data: Buffer): void {
         trackerMode: customMode,
         armed: (baseMode & 0x80) !== 0,
       });
-      // Request servo params after first heartbeat
+      // Throttle telemetry + request servo params after first heartbeat
+      if (!state.streamsThrottled) throttleTelemetryStreams();
       if (!state.paramsRequested) requestServoParams();
     } else if (frame.msgId === MAVLINK_MSG_ID_ATTITUDE && frame.payload.length >= 28) {
       const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
@@ -405,6 +416,12 @@ function handleParam(paramId: string, value: number): void {
     case 'SERVO2_MIN': p.servo2Min = value; break;
     case 'SERVO2_MAX': p.servo2Max = value; break;
     case 'SERVO2_TRIM': p.servo2Trim = value; break;
+    case 'RC1_MIN': p.rc1Min = value; break;
+    case 'RC1_MAX': p.rc1Max = value; break;
+    case 'RC1_TRIM': p.rc1Trim = value; break;
+    case 'RC2_MIN': p.rc2Min = value; break;
+    case 'RC2_MAX': p.rc2Max = value; break;
+    case 'RC2_TRIM': p.rc2Trim = value; break;
     default: return;
   }
   console.log(`[AntennaMavlink] Param ${paramId} = ${value}`);
@@ -418,10 +435,47 @@ function handleParam(paramId: string, value: number): void {
 }
 
 /**
+ * Throttle the tracker's telemetry streams. ArduPilot's default full-rate stream
+ * (~45 msg/s) saturates the slow WIFI232 serial link and starves PARAM_VALUE
+ * responses. Keep only what the UI consumes: ATTITUDE (EXTRA1) and
+ * RC_CHANNELS/SERVO_OUTPUT_RAW (RC_CHANNELS group). Runtime-only setting —
+ * resets to SRx_* defaults on tracker reboot. HEARTBEAT/STATUSTEXT/PARAM_VALUE/
+ * COMMAND_ACK are not stream-gated and are unaffected.
+ */
+const STREAM_RATES: Array<[number, number]> = [
+  [1, 0],  // RAW_SENSORS — off
+  [2, 0],  // EXTENDED_STATUS — off
+  [3, 2],  // RC_CHANNELS (RC_CHANNELS + SERVO_OUTPUT_RAW) — 2 Hz
+  [4, 0],  // RAW_CONTROLLER — off
+  [6, 0],  // POSITION — off
+  [10, 4], // EXTRA1 (ATTITUDE) — 4 Hz
+  [11, 0], // EXTRA2 — off
+  [12, 0], // EXTRA3 — off
+];
+
+function throttleTelemetryStreams(): void {
+  if (!state.config) return;
+  state.streamsThrottled = true;
+  // Send twice — the link is lossy and there is no ack for stream requests
+  for (let i = 0; i < 2; i++) {
+    for (const [streamId, rateHz] of STREAM_RATES) {
+      const frame = state.mavBuilder.buildRequestDataStream(
+        state.config.targetSystemId, state.config.targetComponentId, streamId, rateHz,
+      );
+      try { writeFrame(frame); } catch (_) {}
+    }
+  }
+  console.log('[AntennaMavlink] Telemetry streams throttled (ATTITUDE 4Hz, RC/SERVO 2Hz, rest off)');
+}
+
+/**
  * Request servo parameters from tracker — retries every 2s until all received
  */
 let paramRetryTimer: ReturnType<typeof setInterval> | null = null;
-const REQUIRED_PARAMS = ['SERVO1_MIN', 'SERVO1_MAX', 'SERVO1_TRIM', 'SERVO2_MIN', 'SERVO2_MAX', 'SERVO2_TRIM'];
+const REQUIRED_PARAMS = [
+  'SERVO1_MIN', 'SERVO1_MAX', 'SERVO1_TRIM', 'SERVO2_MIN', 'SERVO2_MAX', 'SERVO2_TRIM',
+  'RC1_MIN', 'RC1_MAX', 'RC1_TRIM', 'RC2_MIN', 'RC2_MAX', 'RC2_TRIM',
+];
 const receivedParams = new Set<string>();
 
 function requestServoParams(): void {
@@ -600,6 +654,7 @@ async function disconnect(): Promise<void> {
   state.connected = false;
   state.config = null;
   state.paramsRequested = false;
+  state.streamsThrottled = false;
   state.servoParams.loaded = false;
   state.lastHeartbeatMode = null;
   state.mavParser.reset();
@@ -652,12 +707,15 @@ async function handleRequest(request: AntennaMavlinkIPCRequest): Promise<void> {
     case 'send-rc-override':
       if (state.connected && state.config) {
         const pRc = state.servoParams;
-        // Map azimuth, inverted (same as servo)
+        // RC override values must be in the RC input scale (RC1_*/RC2_*), NOT the
+        // servo output scale — ArduPilot maps RC→servo itself using SERVOn_* and
+        // SERVOn_REVERSED. The scales coincide on some units but not all.
+        // Map azimuth, inverted (matches physical direction convention)
         const azNorm = (request.azimuthPwm - 540) / (2400 - 540); // 0..1
-        state.rcOverrideAz = Math.round(pRc.servo1Max - azNorm * (pRc.servo1Max - pRc.servo1Min));
-        // Map elevation degrees using calibrated params
+        state.rcOverrideAz = Math.round(pRc.rc1Max - azNorm * (pRc.rc1Max - pRc.rc1Min));
+        // Map elevation degrees onto the RC2 scale
         const rcElDeg = request.elevationPwm; // raw degrees
-        state.rcOverrideEl = mapElevationToPwm(rcElDeg, pRc.servo2Min, pRc.servo2Max, pRc.servo2Trim);
+        state.rcOverrideEl = mapElevationToPwm(rcElDeg, pRc.rc2Min, pRc.rc2Max, pRc.rc2Trim);
         // Start continuous RC override loop if not already running
         if (!state.rcOverrideActive) startRcOverride();
       }
